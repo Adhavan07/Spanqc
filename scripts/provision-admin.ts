@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "../src/lib/server/db";
 import { hashPassword } from "../src/lib/server/auth/passwords";
+import { revokeAllUserSessions } from "../src/lib/server/auth/session";
 
 export interface ProvisionOptions {
   email: string;
@@ -112,6 +113,9 @@ export async function provisionAdmin(options: ProvisionOptions): Promise<Provisi
         tenantId: tenant.id,
       },
     });
+
+    // Invalidate active sessions to enforce fresh login under updated credentials/role
+    await revokeAllUserSessions(existingUser.id);
 
     return {
       action: "updated",

@@ -1,23 +1,16 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server/db";
 import {
-  extractSessionTokenFromCookie,
+  extractRequestAuth,
   validateDBSession,
 } from "@/lib/server/auth/session";
+import { validateOrigin } from "@/lib/server/auth/csrf";
+import { hasPermission } from "@/lib/server/auth/rbac";
 
 async function getAuthenticatedSession(request: Request) {
-  const cookieHeader = request.headers.get("cookie");
-  let token = extractSessionTokenFromCookie(cookieHeader);
-
-  if (!token) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader?.toLowerCase().startsWith("bearer ")) {
-      token = authHeader.slice(7).trim();
-    }
-  }
-
-  if (!token) return null;
-  return await validateDBSession(token);
+  const auth = extractRequestAuth(request);
+  if (!auth.token) return null;
+  return await validateDBSession(auth.token);
 }
 
 export async function GET(request: Request) {
@@ -26,6 +19,14 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { detail: "Authentication required." },
       { status: 401 }
+    );
+  }
+
+  // Enforce explicit RBAC check for projects:read
+  if (!hasPermission(session.user.role, "projects:read")) {
+    return NextResponse.json(
+      { detail: "Forbidden: Insufficient permissions to view projects." },
+      { status: 403 }
     );
   }
 
@@ -56,11 +57,36 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await getAuthenticatedSession(request);
+  const auth = extractRequestAuth(request);
+  if (!auth.token) {
+    return NextResponse.json(
+      { detail: "Authentication required." },
+      { status: 401 }
+    );
+  }
+
+  // 1. CSRF Guard: Validate Origin/Referer for cookie-authenticated state-changing requests
+  // Do NOT impose cookie-based CSRF checks on requests authenticated exclusively by Bearer tokens
+  if (auth.authType === "cookie" && !validateOrigin(request)) {
+    return NextResponse.json(
+      { detail: "Cross-origin request blocked." },
+      { status: 403 }
+    );
+  }
+
+  const session = await validateDBSession(auth.token);
   if (!session) {
     return NextResponse.json(
       { detail: "Authentication required." },
       { status: 401 }
+    );
+  }
+
+  // 2. Role-Based Access Control (RBAC): require projects:create permission
+  if (!hasPermission(session.user.role, "projects:create")) {
+    return NextResponse.json(
+      { detail: "Forbidden: Reviewers are not authorized to create projects." },
+      { status: 403 }
     );
   }
 

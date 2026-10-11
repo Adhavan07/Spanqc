@@ -152,10 +152,57 @@ export async function revokeServerSession(token: string): Promise<void> {
 }
 
 /**
+ * Revoke all active database sessions for a specific user ID (e.g. on password/role change).
+ */
+export async function revokeAllUserSessions(userId: string): Promise<void> {
+  await db.session.deleteMany({
+    where: { userId },
+  });
+}
+
+/**
  * Extract session token from cookie header or NextRequest cookies.
  */
 export function extractSessionTokenFromCookie(cookieHeader: string | null | undefined): string | null {
   if (!cookieHeader) return null;
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE_NAME}=([^;]+)`));
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+export interface RequestAuth {
+  token: string | null;
+  authType: "cookie" | "bearer" | null;
+}
+
+/**
+ * Centrally extract session token and authentication type from cookies or Authorization header.
+ * Prioritizes cookies when present, and safely handles Bearer tokens.
+ * Rejects empty or malformed bearer tokens.
+ */
+export function extractRequestAuth(request: Request | { headers: Headers; cookies?: { get(name: string): { value: string } | undefined } }): RequestAuth {
+  if ("cookies" in request && typeof request.cookies?.get === "function") {
+    const cookieVal = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+    if (cookieVal && cookieVal.trim().length > 0) {
+      return { token: cookieVal.trim(), authType: "cookie" };
+    }
+  }
+
+  const cookieHeader = request.headers.get("cookie");
+  const cookieToken = extractSessionTokenFromCookie(cookieHeader);
+  if (cookieToken && cookieToken.trim().length > 0) {
+    return { token: cookieToken.trim(), authType: "cookie" };
+  }
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader) {
+    const trimmed = authHeader.trim();
+    if (trimmed.toLowerCase().startsWith("bearer ")) {
+      const bearerToken = trimmed.slice(7).trim();
+      if (bearerToken.length > 0) {
+        return { token: bearerToken, authType: "bearer" };
+      }
+    }
+  }
+
+  return { token: null, authType: null };
 }

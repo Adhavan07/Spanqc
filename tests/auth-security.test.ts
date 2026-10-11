@@ -8,7 +8,7 @@ import { proxy } from "../src/proxy";
 import { NextRequest } from "next/server";
 import { db } from "../src/lib/server/db";
 import { TEST_PASSWORDS, runSeed } from "../prisma/seed";
-import { SESSION_COOKIE_NAME, signSessionToken } from "../src/lib/server/auth/session";
+import { SESSION_COOKIE_NAME, signSessionToken, revokeAllUserSessions, hashToken } from "../src/lib/server/auth/session";
 import { provisionAdmin, validateEmail, validateOrgName } from "../scripts/provision-admin";
 import { verifyPassword } from "../src/lib/server/auth/passwords";
 
@@ -208,12 +208,12 @@ async function runTestSuite() {
 
     // Test unauthenticated API request to proxy
     const proxyReqApiUnauth = new NextRequest("http://localhost:3000/api/v1/projects");
-    const proxyResApiUnauth = proxy(proxyReqApiUnauth);
+    const proxyResApiUnauth = await proxy(proxyReqApiUnauth);
     assert(proxyResApiUnauth.status === 401, "Proxy returns HTTP 401 for unauthenticated API routes");
 
     // Test unauthenticated Web request to proxy
     const proxyReqWebUnauth = new NextRequest("http://localhost:3000/app/check");
-    const proxyResWebUnauth = proxy(proxyReqWebUnauth);
+    const proxyResWebUnauth = await proxy(proxyReqWebUnauth);
     assert(proxyResWebUnauth.status === 307, "Proxy redirects unauthenticated web requests to /login");
     assert(
       proxyResWebUnauth.headers.get("location")?.includes("/login") === true,
@@ -224,11 +224,15 @@ async function runTestSuite() {
     const proxyReqApiAuth = new NextRequest("http://localhost:3000/api/v1/projects", {
       headers: { Cookie: `${SESSION_COOKIE_NAME}=${freshToken}` },
     });
-    const proxyResApiAuth = proxy(proxyReqApiAuth);
+    const proxyResApiAuth = await proxy(proxyReqApiAuth);
     assert(proxyResApiAuth.status === 200, "Proxy allows authenticated requests to proceed");
     assert(
-      proxyResApiAuth.headers.get("x-user-id") !== null,
+      proxyResApiAuth.headers.get("x-middleware-request-x-user-id") !== null,
       "Proxy injects verified x-user-id header into downstream context"
+    );
+    assert(
+      proxyResApiAuth.headers.get("x-user-id") === null,
+      "Proxy does NOT leak raw x-user-id header to outbound client response"
     );
   }
 
@@ -433,6 +437,445 @@ async function runTestSuite() {
       console.warn("[CLEANUP WARNING]", cleanErr);
     }
   }
+
+  // ----------------------------------------------------------------------------
+  // Test 12: Cross-Origin / CSRF Protection on Mutating Requests
+  // ----------------------------------------------------------------------------
+  console.log("\n[TEST 12] Cross-Origin / CSRF Protection on Mutating Requests");
+  {
+    // Log in as Pravin to get valid session
+    const loginRes = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "pravin@spandsons.com", password: TEST_PASSWORDS.pravin }),
+      })
+    );
+    const validCookie = `${SESSION_COOKIE_NAME}=${loginRes.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    // A. Cross-origin POST request via Proxy is blocked with 403
+    const proxyCsrfReq = new NextRequest("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Origin: "https://evil-attacker.example.com",
+        "Content-Type": "application/json",
+      },
+    });
+    const proxyCsrfRes = await proxy(proxyCsrfReq);
+    assert(proxyCsrfRes.status === 403, "Proxy blocks cross-origin POST request with HTTP 403");
+
+    // B. Cross-origin POST request via Handler is blocked with 403
+    const handlerCsrfReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Origin: "https://evil-attacker.example.com",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Malicious CSRF Project" }),
+    });
+    const handlerCsrfRes = await createProjectHandler(handlerCsrfReq);
+    assert(handlerCsrfRes.status === 403, "API handler blocks cross-origin POST request with HTTP 403");
+
+    // C. Malformed Origin header is rejected with 403
+    const malformedOriginReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Origin: "not_a_valid_url://",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Malformed Origin Project" }),
+    });
+    const malformedOriginRes = await createProjectHandler(malformedOriginReq);
+    assert(malformedOriginRes.status === 403, "API handler rejects malformed Origin header with HTTP 403");
+
+    // D. Cross-origin Logout request is blocked with 403
+    const logoutCsrfReq = new Request("http://localhost:3000/api/v1/auth/logout", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Origin: "https://evil-attacker.example.com",
+      },
+    });
+    const logoutCsrfRes = await logoutHandler(logoutCsrfReq);
+    assert(logoutCsrfRes.status === 403, "API handler blocks cross-origin logout with HTTP 403");
+
+    // E. Legitimate same-origin request is allowed
+    const sameOriginReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Origin: "http://localhost:3000",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Legitimate Same-Origin Project" }),
+    });
+    const sameOriginRes = await createProjectHandler(sameOriginReq);
+    assert(sameOriginRes.status === 201, "API handler allows legitimate same-origin POST request");
+
+    // F. Request without Origin header (local development / programmatic) is allowed
+    const noOriginReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Programmatic Local Project" }),
+    });
+    const noOriginRes = await createProjectHandler(noOriginReq);
+    assert(noOriginRes.status === 201, "API handler allows legitimate request without Origin header");
+
+    // G. Configured canonical production origin is accepted even when server is behind internal reverse proxy
+    const prevAppUrl = process.env.APP_URL;
+    try {
+      process.env.APP_URL = "https://app.spanqc.com";
+      const prodOriginReq = new Request("http://127.0.0.1:3000/api/v1/projects", {
+        method: "POST",
+        headers: {
+          Cookie: validCookie,
+          Origin: "https://app.spanqc.com",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "Production Canonical Origin Project" }),
+      });
+      const prodOriginRes = await createProjectHandler(prodOriginReq);
+      assert(prodOriginRes.status === 201, "API handler allows configured canonical production origin");
+
+      // H. Spoofed X-Forwarded-Host with untrusted Origin is rejected with 403
+      const spoofForwardedReq = new Request("http://127.0.0.1:3000/api/v1/projects", {
+        method: "POST",
+        headers: {
+          Cookie: validCookie,
+          Origin: "https://evil-spoof.example.com",
+          "X-Forwarded-Host": "evil-spoof.example.com",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "Spoofed Forwarded Host Project" }),
+      });
+      const spoofForwardedRes = await createProjectHandler(spoofForwardedReq);
+      assert(spoofForwardedRes.status === 403, "API handler rejects spoofed X-Forwarded-Host with untrusted Origin");
+
+      // I. Sec-Fetch-Site: cross-site is rejected with 403
+      const crossSiteMetaReq = new Request("http://localhost:3000/api/v1/projects", {
+        method: "POST",
+        headers: {
+          Cookie: validCookie,
+          "Sec-Fetch-Site": "cross-site",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "Cross-Site Metadata Project" }),
+      });
+      const crossSiteMetaRes = await createProjectHandler(crossSiteMetaReq);
+      assert(crossSiteMetaRes.status === 403, "API handler rejects Sec-Fetch-Site: cross-site with HTTP 403");
+
+      // J. Sandboxed iframe (Origin: null) is rejected with 403
+      const nullOriginReq = new Request("http://localhost:3000/api/v1/projects", {
+        method: "POST",
+        headers: {
+          Cookie: validCookie,
+          Origin: "null",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: "Null Origin Project" }),
+      });
+      const nullOriginRes = await createProjectHandler(nullOriginReq);
+      assert(nullOriginRes.status === 403, "API handler rejects Origin: null with HTTP 403");
+    } finally {
+      process.env.APP_URL = prevAppUrl;
+    }
+  }
+
+
+  // ----------------------------------------------------------------------------
+  // Test 13: Role-Based Access Control (RBAC) Enforcement
+  // ----------------------------------------------------------------------------
+  console.log("\n[TEST 13] Role-Based Access Control (RBAC) Enforcement");
+  {
+    // A. REVIEWER cannot create projects
+    const reviewerLogin = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "inspector@spandsons.com", password: TEST_PASSWORDS.inspector }),
+      })
+    );
+    const reviewerCookie = `${SESSION_COOKIE_NAME}=${reviewerLogin.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    const reviewerCreateReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: reviewerCookie,
+        Origin: "http://localhost:3000",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Illegal Reviewer Project" }),
+    });
+    const reviewerCreateRes = await createProjectHandler(reviewerCreateReq);
+    assert(reviewerCreateRes.status === 403, "API rejects project creation by REVIEWER role with HTTP 403");
+    const reviewerErr = await reviewerCreateRes.json();
+    assert(reviewerErr.detail?.includes("Reviewers are not authorized"), "Returns descriptive RBAC rejection detail");
+
+    const illegalProjectInDb = await db.project.findFirst({ where: { name: "Illegal Reviewer Project" } });
+    assert(illegalProjectInDb === null, "Verified illegal project was NOT created in the database");
+
+    // B. ENGINEER can create projects
+    const engineerLogin = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "gogulnath@spandsons.com", password: TEST_PASSWORDS.gogulnath }),
+      })
+    );
+    const engineerCookie = `${SESSION_COOKIE_NAME}=${engineerLogin.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    const engineerCreateReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: engineerCookie,
+        Origin: "http://localhost:3000",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Legitimate Engineer Project" }),
+    });
+    const engineerCreateRes = await createProjectHandler(engineerCreateReq);
+    assert(engineerCreateRes.status === 201, "API permits project creation by ENGINEER role with HTTP 201");
+  }
+
+  // ----------------------------------------------------------------------------
+  // Test 14: Session Invalidation on Password and Role Changes
+  // ----------------------------------------------------------------------------
+  console.log("\n[TEST 14] Session Invalidation on Password and Role Changes");
+  {
+    // A. Direct user session revocation
+    const gogulUser = await db.user.findUnique({ where: { email: "gogulnath@spandsons.com" } });
+    assert(gogulUser !== null, "User gogulnath exists");
+
+    const gogulLogin = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "gogulnath@spandsons.com", password: TEST_PASSWORDS.gogulnath }),
+      })
+    );
+    const gogulCookie = `${SESSION_COOKIE_NAME}=${gogulLogin.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    // Verify session works initially
+    const gogulMeBefore = await getMeHandler(
+      new Request("http://localhost:3000/api/v1/auth/me", { headers: { Cookie: gogulCookie } })
+    );
+    assert(gogulMeBefore.status === 200, "Session is valid initially");
+
+    // Invalidate all sessions for gogulnath
+    await revokeAllUserSessions(gogulUser!.id);
+
+    // Verify old session is now rejected
+    const gogulMeAfter = await getMeHandler(
+      new Request("http://localhost:3000/api/v1/auth/me", { headers: { Cookie: gogulCookie } })
+    );
+    assert(gogulMeAfter.status === 401, "Session is revoked immediately after revokeAllUserSessions");
+
+    // B. Administrator provisioning script automatically revokes existing sessions
+    const aliceUser = await db.user.findUnique({ where: { email: "alice@acme-aero.com" } });
+    assert(aliceUser !== null, "User alice exists");
+
+    const aliceLogin = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "alice@acme-aero.com", password: TEST_PASSWORDS.alice }),
+      })
+    );
+    const aliceCookie = `${SESSION_COOKIE_NAME}=${aliceLogin.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    // Update Alice via provisionAdmin with new password
+    await provisionAdmin({
+      email: "alice@acme-aero.com",
+      password: "AliceBrandNewPass@2026!",
+      force: true,
+    });
+
+    // Old session must be revoked immediately
+    const aliceMeAfterProvision = await getMeHandler(
+      new Request("http://localhost:3000/api/v1/auth/me", { headers: { Cookie: aliceCookie } })
+    );
+    assert(aliceMeAfterProvision.status === 401, "Provisioning script automatically revoked prior active sessions for user");
+  }
+
+  // ----------------------------------------------------------------------------
+  // Test 15: Immediate Web Proxy Enforcement for Revoked & Suspended Accounts
+  // ----------------------------------------------------------------------------
+  console.log("\n[TEST 15] Immediate Web Proxy Enforcement for Revoked & Suspended Accounts");
+  {
+    // Log in as Pravin
+    const pravinLogin = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "pravin@spandsons.com", password: TEST_PASSWORDS.pravin }),
+      })
+    );
+    const pravinCookie = `${SESSION_COOKIE_NAME}=${pravinLogin.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+
+    // A. Active session allows web access via Proxy
+    const proxyAllowedReq = new NextRequest("http://localhost:3000/app/projects", {
+      headers: { Cookie: pravinCookie },
+    });
+    const proxyAllowedRes = await proxy(proxyAllowedReq);
+    assert(proxyAllowedRes.status === 200, "Proxy allows active session to access /app/projects");
+
+    // Verify outbound response headers do NOT leak internal identity metadata
+    assert(proxyAllowedRes.headers.get("x-user-id") === null, "Response does NOT leak x-user-id header");
+    assert(proxyAllowedRes.headers.get("x-tenant-id") === null, "Response does NOT leak x-tenant-id header");
+    assert(proxyAllowedRes.headers.get("x-user-role") === null, "Response does NOT leak x-user-role header");
+    assert(proxyAllowedRes.headers.get("x-user-email") === null, "Response does NOT leak x-user-email header");
+
+    // Revoke Pravin's session in DB via logout
+    await logoutHandler(
+      new Request("http://localhost:3000/api/v1/auth/logout", {
+        method: "POST",
+        headers: { Cookie: pravinCookie },
+      })
+    );
+
+    // B. Proxy rejects revoked session and redirects to /login (does NOT rely on HMAC alone)
+    const proxyRevokedReq = new NextRequest("http://localhost:3000/app/projects", {
+      headers: { Cookie: pravinCookie },
+    });
+    const proxyRevokedRes = await proxy(proxyRevokedReq);
+    assert(proxyRevokedRes.status === 307, "Proxy immediately redirects revoked session to /login (does not trust HMAC alone)");
+    assert(proxyRevokedRes.headers.get("location")?.includes("/login") === true, "Redirect location is /login");
+
+    // C. Suspended user is blocked from web and API routes immediately
+    const spandsonsTenant = await db.tenant.findUnique({ where: { slug: "spandsons-horizon" } });
+    const suspendedUser = await db.user.create({
+      data: {
+        email: "suspended.temp@spandsons.com",
+        name: "Suspended User",
+        passwordHash: "$scrypt$temp",
+        role: "ENGINEER",
+        status: "SUSPENDED",
+        tenantId: spandsonsTenant!.id,
+      },
+    });
+
+    const suspendedPayload = {
+      userId: suspendedUser.id,
+      tenantId: spandsonsTenant!.id,
+      role: suspendedUser.role,
+      email: suspendedUser.email,
+      sessionId: "sess-suspended-test",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+    const suspendedToken = signSessionToken(suspendedPayload);
+    // Create DB session for suspended user
+    await db.session.create({
+      data: {
+        id: "sess-suspended-test",
+        tokenHash: hashToken(suspendedToken),
+        userId: suspendedUser.id,
+        tenantId: spandsonsTenant!.id,
+        expiresAt: new Date(Date.now() + 3600000),
+      },
+    });
+
+    const suspendedCookie = `${SESSION_COOKIE_NAME}=${suspendedToken}`;
+
+    // Web request via Proxy
+    const proxySuspendedReq = new NextRequest("http://localhost:3000/app/projects", {
+      headers: { Cookie: suspendedCookie },
+    });
+    const proxySuspendedRes = await proxy(proxySuspendedReq);
+    assert(proxySuspendedRes.status === 307, "Proxy immediately blocks suspended user and redirects to /login");
+
+    // API request via Handler
+    const apiSuspendedReq = new Request("http://localhost:3000/api/v1/auth/me", {
+      headers: { Cookie: suspendedCookie },
+    });
+    const apiSuspendedRes = await getMeHandler(apiSuspendedReq);
+    assert(apiSuspendedRes.status === 401, "API handler rejects suspended user with HTTP 401");
+
+    // Clean up suspended temp user
+    await db.session.deleteMany({ where: { userId: suspendedUser.id } });
+    await db.user.delete({ where: { id: suspendedUser.id } });
+    await runSeed();
+  }
+
+  // ----------------------------------------------------------------------------
+  // Test 16: Bearer Token Authentication Compatibility and CSRF Non-Imposition
+  // ----------------------------------------------------------------------------
+  console.log("\n[TEST 16] Bearer Token Authentication Compatibility and CSRF Non-Imposition");
+  {
+    // Log in as Pravin (Admin) to get session token
+    const loginRes = await loginHandler(
+      new Request("http://localhost:3000/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "pravin@spandsons.com", password: TEST_PASSWORDS.pravin }),
+      })
+    );
+    const loginData = await loginRes.json();
+    const bearerToken = loginData.tokens.access_token as string;
+    assert(typeof bearerToken === "string" && bearerToken.length > 0, "Obtained valid Bearer token from login");
+
+    // A. Proxy allows valid Bearer token to access /api/v1/projects without cookies
+    const proxyBearerReq = new NextRequest("http://localhost:3000/api/v1/projects", {
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+      },
+    });
+    const proxyBearerRes = await proxy(proxyBearerReq);
+    assert(proxyBearerRes.status === 200, "Proxy allows valid Bearer token to access /api/v1/projects");
+
+    // B. API handler allows Bearer token to create project without cookie CSRF requirement
+    // Even if Origin is from a different domain, Bearer tokens are not ambient credentials
+    const handlerBearerReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+        Origin: "https://external-client.example.com",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Bearer Authenticated Project" }),
+    });
+    const handlerBearerRes = await createProjectHandler(handlerBearerReq);
+    assert(handlerBearerRes.status === 201, "API handler permits mutation via Bearer token without cookie CSRF checks");
+
+    // C. Proxy rejects empty Bearer token with 401
+    const proxyEmptyBearerReq = new NextRequest("http://localhost:3000/api/v1/projects", {
+      headers: {
+        Authorization: "Bearer ",
+      },
+    });
+    const proxyEmptyBearerRes = await proxy(proxyEmptyBearerReq);
+    assert(proxyEmptyBearerRes.status === 401, "Proxy rejects empty Bearer token with HTTP 401");
+
+    // D. API handler rejects malformed Bearer token with 401
+    const handlerBadBearerReq = new Request("http://localhost:3000/api/v1/projects", {
+      headers: {
+        Authorization: "Bearer invalid.signature.token",
+      },
+    });
+    const handlerBadBearerRes = await getProjectsHandler(handlerBadBearerReq);
+    assert(handlerBadBearerRes.status === 401, "API handler rejects invalid Bearer token with HTTP 401");
+
+    // E. Requests with both Cookie and Bearer: if Cookie is present, CSRF is still enforced
+    const validCookie = `${SESSION_COOKIE_NAME}=${loginRes.cookies.get(SESSION_COOKIE_NAME)!.value}`;
+    const dualAuthCsrfReq = new Request("http://localhost:3000/api/v1/projects", {
+      method: "POST",
+      headers: {
+        Cookie: validCookie,
+        Authorization: `Bearer ${bearerToken}`,
+        Origin: "https://evil-cross-origin.example.com",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Illegal Dual Auth CSRF Project" }),
+    });
+    const dualAuthCsrfRes = await createProjectHandler(dualAuthCsrfReq);
+    assert(dualAuthCsrfRes.status === 403, "Requests with ambient cookie still enforce CSRF even if Bearer is provided");
+  }
+
 
   console.log("\n================================================================================");
   console.log(`TEST SUITE COMPLETE: ${passedCount} PASSED, ${failedCount} FAILED`);

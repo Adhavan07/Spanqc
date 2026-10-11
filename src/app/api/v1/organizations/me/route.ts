@@ -1,23 +1,14 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/server/db";
 import {
-  extractSessionTokenFromCookie,
+  extractRequestAuth,
   validateDBSession,
 } from "@/lib/server/auth/session";
 
 export async function GET(request: Request) {
-  // 1. Extract session token
-  const cookieHeader = request.headers.get("cookie");
-  let token = extractSessionTokenFromCookie(cookieHeader);
+  // 1. Extract session token from cookie or Authorization Bearer header
+  const auth = extractRequestAuth(request);
 
-  if (!token) {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader?.toLowerCase().startsWith("bearer ")) {
-      token = authHeader.slice(7).trim();
-    }
-  }
-
-  if (!token) {
+  if (!auth.token) {
     return NextResponse.json(
       { detail: "Authentication required." },
       { status: 401 }
@@ -25,7 +16,7 @@ export async function GET(request: Request) {
   }
 
   // 2. Validate session against persistent database record
-  const session = await validateDBSession(token);
+  const session = await validateDBSession(auth.token);
   if (!session) {
     return NextResponse.json(
       { detail: "Session expired or invalid." },

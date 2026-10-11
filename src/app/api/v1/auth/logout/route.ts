@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
 import {
-  extractSessionTokenFromCookie,
+  extractRequestAuth,
   revokeServerSession,
   SESSION_COOKIE_NAME,
 } from "@/lib/server/auth/session";
+import { validateOrigin } from "@/lib/server/auth/csrf";
 
 export async function POST(request: Request) {
-  const cookieHeader = request.headers.get("cookie");
-  const token = extractSessionTokenFromCookie(cookieHeader);
+  const auth = extractRequestAuth(request);
 
-  if (token) {
-    await revokeServerSession(token).catch(() => {});
+  // Apply CSRF Origin validation to cookie-authenticated logout requests
+  if (auth.authType === "cookie" && !validateOrigin(request)) {
+    return NextResponse.json(
+      { detail: "Cross-origin request blocked." },
+      { status: 403 }
+    );
+  }
+
+  if (auth.token) {
+    await revokeServerSession(auth.token).catch(() => {});
   }
 
   const response = NextResponse.json({ ok: true });
