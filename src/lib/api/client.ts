@@ -1,6 +1,6 @@
 /**
  * SpanQC Typed API Client
- * Centralized fetcher with token injection, timeout handling, and unified error parsing.
+ * Centralized fetcher with credentials/cookie injection, timeout handling, and unified error parsing.
  */
 
 export class ApiError extends Error {
@@ -14,14 +14,12 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = typeof window !== "undefined" ? "" : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = typeof window !== "undefined" ? "" : process.env.NEXT_PUBLIC_API_URL || "";
 
 export async function apiClient<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("spanqc_access_token") : null;
-
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(options.headers as Record<string, string>),
@@ -32,26 +30,23 @@ export async function apiClient<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
   const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
   try {
     const res = await fetch(url, {
+      credentials: "include", // Ensure HttpOnly session cookies are transmitted
       ...options,
       headers,
     });
 
     if (res.status === 401) {
-      if (typeof window !== "undefined") {
-        // If unauthorized and not a login request, clear token
-        if (!endpoint.includes("/auth/login")) {
-          localStorage.removeItem("spanqc_access_token");
-        }
+      let errorBody: { detail?: string; message?: string } = {};
+      try {
+        errorBody = await res.json();
+      } catch {
+        // failed to parse
       }
-      throw new ApiError(401, "Session expired or unauthorized. Please log in.");
+      throw new ApiError(401, errorBody.detail || errorBody.message || "Session expired or unauthorized. Please log in.", errorBody);
     }
 
     if (!res.ok) {

@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------
+// 1. ORGANIZATIONS / TENANTS
+// -------------------------------------------------------------
+model Tenant {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  status      String    @default("ACTIVE") // ACTIVE, SUSPENDED, DEACTIVATED
+  plan        String    @default("SUBSCRIPTION")
+  checkQuota  Int       @default(120)
+  quotaUsed   Int       @default(38)
+  users       User[]
+  projects    Project[]
+  sessions    Session[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("organizations")
+}
+
+// -------------------------------------------------------------
+// 2. USERS & ROLES
+// -------------------------------------------------------------
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  status       String    @default("ACTIVE") // ACTIVE, INVITED, SUSPENDED
+  role         String    @default("ENGINEER") // ADMIN, ENGINEER, REVIEWER
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions     Session[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// -------------------------------------------------------------
+// 3. SERVER-SIDE SESSION RECORDS
+// -------------------------------------------------------------
+model Session {
+  id         String    @id @default(uuid())
+  tokenHash  String    @unique
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([tenantId])
+  @@map("sessions")
+}
+
+// -------------------------------------------------------------
+// 4. PROJECTS (TENANT-SCOPED)
+// -------------------------------------------------------------
+model Project {
+  id          String    @id @default(uuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  customer    String?
+  standard    String    @default("IPC/WHMA-A-620D")
+  status      String    @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@map("projects")
+}

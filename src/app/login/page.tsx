@@ -21,8 +21,12 @@ function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!email.trim() || !password) {
+      setError("Please enter both your work email and password.");
+      return;
+    }
     try {
-      await login(email || "engineer@spandsons.com", password || "••••••••••••");
+      await login(email.trim(), password);
       router.push(redirectUrl);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authentication failed");

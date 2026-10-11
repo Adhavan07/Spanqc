@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { User, Organization } from "@/types";
-import { DEFAULT_SYSTEM_USERS, getMeApi, getMyOrgApi, loginApi, logoutApi } from "../api/auth";
+import { getMeApi, getMyOrgApi, loginApi, logoutApi } from "../api/auth";
 
 interface AuthContextType {
   user: User | null;
@@ -11,7 +11,6 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<void>;
   logout: () => Promise<void>;
-  switchPersona?: (personaKey: "pravin" | "gogulnath" | "inspector") => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,30 +23,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function initAuth() {
-      if (typeof window === "undefined") {
-        setIsLoading(false);
-        return;
-      }
-
-      const token = localStorage.getItem("spanqc_access_token");
-      if (!token) {
-        setUser(null);
-        setOrganization(null);
-        setIsAuthenticated(false);
-        setIsLoading(false);
-        return;
-      }
-
       try {
-        const [me, org] = await Promise.all([getMeApi(), getMyOrgApi()]);
+        const me = await getMeApi();
         setUser(me);
+        const org = await getMyOrgApi();
         setOrganization(org);
         setIsAuthenticated(true);
       } catch {
-        // Fallback to default user if token exists
-        setUser(DEFAULT_SYSTEM_USERS.pravin.user);
-        setOrganization(DEFAULT_SYSTEM_USERS.pravin.org);
-        setIsAuthenticated(true);
+        // Unauthenticated or session expired: reset state cleanly without mock fallback
+        setUser(null);
+        setOrganization(null);
+        setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
       }
@@ -60,24 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await loginApi({ email, password });
       setUser(res.user);
+      setOrganization(res.organization);
       setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("spanqc_access_token", res.tokens.access_token);
-      }
-      const org = await getMyOrgApi();
-      setOrganization(org);
-    } catch {
-      // Local fallback for offline/preview
-      const matched = Object.values(DEFAULT_SYSTEM_USERS).find(
-        (u) => u.user.email.toLowerCase() === email.toLowerCase()
-      );
-      const fallbackUser = matched ? matched.user : DEFAULT_SYSTEM_USERS.pravin.user;
-      setUser(fallbackUser);
-      setOrganization(DEFAULT_SYSTEM_USERS.pravin.org);
-      setIsAuthenticated(true);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("spanqc_access_token", `spanqc_jwt_${fallbackUser.id}`);
-      }
     } finally {
       setIsLoading(false);
     }
@@ -88,12 +58,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await logoutApi();
     } catch {
-      // ignore
+      // ignore network errors on logout
     } finally {
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("spanqc_access_token");
-        localStorage.removeItem("spanqc_active_persona");
-      }
       setUser(null);
       setOrganization(null);
       setIsAuthenticated(false);

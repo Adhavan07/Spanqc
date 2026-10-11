@@ -31,3 +31,11 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# local poc directory (never track or push to git)
+/poc/
+
+# sqlite database files
+*.db
+*.db-journal
+/prisma/dev.db*
