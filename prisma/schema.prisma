@@ -21,6 +21,8 @@ model Tenant {
   users       User[]
   projects    Project[]
   sessions    Session[]
+  qcJobs      QCJob[]
+  qcJobReviews QCJobReview[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -40,6 +42,7 @@ model User {
   tenantId     String
   tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   sessions     Session[]
+  qcJobReviews QCJobReview[]
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -78,9 +81,83 @@ model Project {
   customer    String?
   standard    String    @default("IPC/WHMA-A-620D")
   status      String    @default("ACTIVE") // ACTIVE, ARCHIVED
+  qcJobs      QCJob[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([tenantId])
   @@map("projects")
+}
+
+// -------------------------------------------------------------
+// 5. ASYNCHRONOUS QC JOBS (TENANT-SCOPED)
+// -------------------------------------------------------------
+model QCJob {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projectId           String
+  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId              String
+  idempotencyKey      String?
+  documentName        String
+  documentSha256      String
+  storageKey          String
+  standard            String    @default("IPC/WHMA-A-620D")
+  expectedNetlistJson String?
+  specificationIsComplete Boolean?
+  extractionIsVerified Boolean?
+  scopeDescription    String?
+  status              String    @default("QUEUED") // QUEUED, PROCESSING, COMPLETED, REVIEW_REQUIRED, FAILED
+  overallOutcome      String?   // PASS, FAIL, REVIEW
+  totalPageCount      Int       @default(1)
+  processedPageCount  Int       @default(0)
+  failedPageCount     Int       @default(0)
+  unprocessedPages    String?   // JSON array string
+  failedPages         String?   // JSON array string
+  resultReportJson    String?   // Persisted validated QCReport JSON
+  errorMessage        String?
+  retryCount          Int       @default(0)
+  maxRetries          Int       @default(2)
+  claimToken          String?
+  claimedAt           DateTime?
+  quotaRefunded       Boolean   @default(false)
+  reviews             QCJobReview[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([status])
+  @@index([status, claimedAt])
+  @@map("qc_jobs")
+}
+
+// -------------------------------------------------------------
+// 6. DURABLE QC JOB HUMAN REVIEWS (AUDITABLE & VERSIONED)
+// -------------------------------------------------------------
+model QCJobReview {
+  id                    String    @id @default(uuid())
+  jobId                 String
+  job                   QCJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviewerId            String
+  reviewer              User      @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  version               Int       @default(1)
+  decision              String    // ACCEPTED, REJECTED, NEEDS_CLARIFICATION
+  notes                 String?
+  observationDecisions  String?   // JSON object string mapping observation IDs to disposition details
+  idempotencyKey        String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([jobId, version])
+  @@unique([jobId, idempotencyKey])
+  @@index([jobId])
+  @@index([tenantId])
+  @@index([reviewerId])
+  @@index([jobId, createdAt])
+  @@map("qc_job_reviews")
 }

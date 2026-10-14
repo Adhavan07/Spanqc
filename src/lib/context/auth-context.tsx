@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { User, Organization } from "@/types";
-import { getMeApi, getMyOrgApi, loginApi, logoutApi } from "../api/auth";
+import { getMeApi, getMyOrgApi, loginApi, logoutApi, registerApi, RegisterPayload } from "../api/auth";
 
 interface AuthContextType {
   user: User | null;
@@ -10,6 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -53,6 +54,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const register = async (payload: RegisterPayload) => {
+    setIsLoading(true);
+    try {
+      const res = await registerApi(payload);
+      setUser(res.user);
+      setOrganization(res.organization);
+      setIsAuthenticated(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async () => {
     setIsLoading(true);
     try {
@@ -78,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated,
         isLoading,
         login,
+        register,
         logout,
       }}
     >

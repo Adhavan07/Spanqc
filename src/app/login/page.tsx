@@ -86,6 +86,26 @@ function LoginForm() {
         </Button>
       </form>
 
+      {/* Demo Credentials Helper */}
+      <div className="mt-4 p-3 rounded-2xl bg-cyan-950/20 border border-cyan-800/30 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 text-cyan-300">
+          <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+          <div className="font-mono text-[11px]">
+            <span className="font-bold text-white">Demo:</span> pravin@spandsons.com
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setEmail("pravin@spandsons.com");
+            setPassword("PravinQC@2026!");
+          }}
+          className="text-[11px] font-mono px-2 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition-colors cursor-pointer border border-cyan-500/30"
+        >
+          Auto-fill
+        </button>
+      </div>
+
       <div className="mt-6 pt-5 border-t border-[#1b253b] flex items-center justify-between text-xs text-slate-400">
         <span>Don&apos;t have an account?</span>
         <Link href="/signup" className="text-cyan-400 hover:text-cyan-300 font-semibold">

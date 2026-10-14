@@ -20,6 +20,13 @@ export async function loginApi(payload: LoginPayload): Promise<{ tokens: AuthTok
   });
 }
 
+export async function registerApi(payload: RegisterPayload): Promise<{ tokens: AuthTokens; user: User; organization: Organization }> {
+  return await apiClient<{ tokens: AuthTokens; user: User; organization: Organization }>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getMeApi(): Promise<User> {
   return await apiClient<User>("/api/v1/auth/me");
 }

@@ -19,8 +19,8 @@ import { validateOrigin } from "@/lib/server/auth/csrf";
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Always allow public authentication login endpoint
-  if (pathname === "/api/v1/auth/login") {
+  // 1. Always allow public authentication endpoints
+  if (pathname === "/api/v1/auth/login" || pathname === "/api/v1/auth/register") {
     return NextResponse.next();
   }
 

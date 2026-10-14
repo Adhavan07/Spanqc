@@ -39,3 +39,12 @@ yarn-error.log*
 *.db
 *.db-journal
 /prisma/dev.db*
+
+# python virtual environments and caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# private document storage
+/storage/

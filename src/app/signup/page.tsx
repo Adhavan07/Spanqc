@@ -11,19 +11,36 @@ import { Rocket, Mail, Lock, User, Building, ArrowRight, ShieldCheck } from "luc
 
 export default function SignupPage() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { register } = useAuth();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    if (!email.trim() || !password) {
+      setError("Please enter your work email and password.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
     setIsLoading(true);
     try {
-      await login(email, password);
+      await register({
+        email: email.trim(),
+        password,
+        full_name: fullName.trim() || "User",
+        organization_name: company.trim() || undefined,
+      });
       router.push("/app");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create account.");
     } finally {
       setIsLoading(false);
     }
@@ -56,6 +73,11 @@ export default function SignupPage() {
 
         <div className="p-8 rounded-3xl bg-[#0c101a] border border-[#1b253b] shadow-2xl shadow-black/80">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium">
+                {error}
+              </div>
+            )}
             <Input
               label="Full Name"
               required
