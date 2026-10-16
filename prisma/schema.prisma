@@ -33,18 +33,20 @@ model Tenant {
 // 2. USERS & ROLES
 // -------------------------------------------------------------
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  name         String
-  passwordHash String
-  status       String    @default("ACTIVE") // ACTIVE, INVITED, SUSPENDED
-  role         String    @default("ENGINEER") // ADMIN, ENGINEER, REVIEWER
-  tenantId     String
-  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions     Session[]
-  qcJobReviews QCJobReview[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  name                String
+  passwordHash        String
+  googleId            String?   @unique
+  isGoogleAuthEnabled Boolean   @default(true)
+  status              String    @default("ACTIVE") // ACTIVE, INVITED, SUSPENDED
+  role                String    @default("ENGINEER") // ADMIN, ENGINEER, REVIEWER
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions            Session[]
+  qcJobReviews        QCJobReview[]
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([tenantId])
   @@map("users")
