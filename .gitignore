@@ -54,6 +54,20 @@ AGENTS.md
 CLAUDE.md
 SPANQC_AGENT_CONTEXT.md
 SPANQC_ARCHITECTURE_AND_HISTORY*
+.agent
+.agents/
+
+# openspec (planning artifacts)
+openspec/
 
 # experiments directory
 /experiments/
+/spanqc_core/.venv/
+/spanqc_core/.env*
+*.zip
+
+# terraform & ansible dynamic state
+infra/terraform/.terraform/
+infra/terraform/*.tfstate*
+infra/terraform/*.tfplan*
+infra/ansible/inventory.ini

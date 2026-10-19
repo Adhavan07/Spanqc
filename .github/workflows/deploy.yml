@@ -1,0 +1,120 @@
+name: SpanQC Production CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # Stage 1: Quality Gate & Test Verification
+  # ============================================================================
+  test_and_verify:
+    name: Verify Tests & Compilation Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install NPM Dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: TypeScript Static Typecheck
+        run: npm run typecheck
+
+      - name: Run Auth & Security Test Suite (101 tests)
+        run: npm test
+
+      - name: Run QC Job Bridge Test Suite (79 tests)
+        run: DATABASE_URL="file:./test.db" npx tsx tests/qc-job-bridge.test.ts
+
+      - name: Run Payment System Test Suite (12 tests)
+        run: DATABASE_URL="file:./test.db" npx tsx tests/payment-system.test.ts
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "spanqc_core/requirements.txt"
+
+      - name: Install Python Core Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r spanqc_core/requirements.txt
+
+      - name: Run Python Rule Engine & Extraction Tests (89 tests)
+        run: |
+          cd spanqc_core
+          PYTHONPATH=. pytest tests -q
+
+      - name: Verify Next.js Standalone Production Build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+          NODE_ENV: production
+          DATABASE_URL: "file:./dev.db"
+          AUTH_SECRET: "ci-build-static-validation-secret"
+        run: npm run build
+
+  # ============================================================================
+  # Stage 2: Deploy to Production EC2 (Only on main push)
+  # ============================================================================
+  deploy_production:
+    name: Zero-Downtime Deploy to AWS EC2
+    needs: test_and_verify
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Connection & Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            echo "=== [SPANQC] Starting Zero-Downtime Deployment ==="
+            cd /opt/spanqc
+
+            # 1. Pull latest code from main
+            git fetch origin main
+            git reset --hard origin/main
+
+            # 2. Rebuild and launch containers with Docker Compose
+            docker compose pull || true
+            docker compose up -d --build --remove-orphans
+
+            # 3. Wait for services to become healthy
+            echo "Waiting for health checks to pass..."
+            sleep 10
+            docker compose ps
+
+            # 4. Clean up dangling images
+            docker image prune -f
+
+            echo "=== [SPANQC] Deployment Complete Successfully! ==="

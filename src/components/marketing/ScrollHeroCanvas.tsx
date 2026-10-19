@@ -81,11 +81,9 @@ export function ScrollHeroCanvas() {
   );
 
   const calculateProgress = useCallback(() => {
-    const scrollHeight = document.documentElement.scrollHeight;
     const innerHeight = window.innerHeight;
-    const maxScroll = scrollHeight - innerHeight;
-    if (maxScroll <= 0) return 0;
-    return Math.min(Math.max(window.scrollY / maxScroll, 0), 1);
+    const heroScrubDistance = Math.max(innerHeight * 1.6, 600);
+    return Math.min(Math.max(window.scrollY / heroScrubDistance, 0), 1);
   }, []);
 
   useEffect(() => {

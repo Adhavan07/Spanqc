@@ -56,6 +56,12 @@ export default function CheckWorkflowPage() {
   const [selectedProject, setSelectedProject] = useState(INITIAL_PROJECTS[0].id);
   const [selectedStandard, setSelectedStandard] = useState(SAMPLE_STANDARDS[0].code);
 
+  // Reference Netlist input (wire_no, colour, size_mm2, source, destination)
+  const [expectedNetlistJson, setExpectedNetlistJson] = useState("");
+  const [specificationIsComplete, setSpecificationIsComplete] = useState(false);
+  const [promptVersion, setPromptVersion] = useState<"extract_v1" | "extract_v2">("extract_v1");
+  const [showNetlistEditor, setShowNetlistEditor] = useState(false);
+
   // Document viewer controls
   const [zoomLevel, setZoomLevel] = useState(100);
   const [currentPage, setCurrentPage] = useState(1);
@@ -176,44 +182,96 @@ export default function CheckWorkflowPage() {
     setStep("PREVIEW");
   };
 
-  // Start Real Processing Pipeline with Timeout & Error Guards
-  const handleStartQC = () => {
+  // Start Real Processing Pipeline wired to Python QC Service queue
+  const handleStartQC = async () => {
     setProcessingError(null);
     setStep("PROCESSING");
     setProcessingStage(0);
 
-    const interval = setInterval(() => {
-      setProcessingStage((prev) => {
-        if (prev < processingStages.length - 1) {
-          return prev + 1;
-        } else {
-          clearInterval(interval);
-          setTimeout(async () => {
-            try {
-              if (rawFile) {
-                // Dynamically create real report from uploaded file!
-                const { reportId } = await createReportFromUploadedFile(
-                  rawFile,
-                  selectedProject,
-                  selectedStandard
-                );
-                router.push(`/app/reports/${reportId}`);
-              } else if (fileData?.sampleKey === "mcc") {
-                router.push("/app/reports/run-mcc01");
-              } else if (fileData?.sampleKey === "tb200") {
-                router.push("/app/reports/run-tb200");
-              } else {
-                router.push("/app/reports/run-wh402");
-              }
-            } catch (err) {
-              console.error("Report generation failed", err);
-              setProcessingError("Processing timeout: unable to finalize QC graph. Please retry.");
-            }
-          }, 800);
-          return prev;
-        }
+    let fileToUpload: File | Blob | null = rawFile;
+
+    // If sample was selected, fetch it as Blob
+    if (!fileToUpload && fileData?.sampleKey) {
+      try {
+        const sampleUrl = fileData.sampleKey === "wh402" ? "/frames/frame_001.webp" : "/frames/frame_020.webp";
+        const sampleRes = await fetch(sampleUrl);
+        fileToUpload = await sampleRes.blob();
+      } catch (err) {
+        console.warn("Failed to fetch sample file as blob", err);
+      }
+    }
+
+    if (!fileToUpload) {
+      setProcessingError("No schematic file available to upload.");
+      setStep("PREVIEW");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", fileToUpload, fileData?.name || "schematic.pdf");
+      formData.append("projectId", selectedProject);
+      formData.append("standard", selectedStandard);
+      if (expectedNetlistJson.trim()) {
+        formData.append("expectedNetlistJson", expectedNetlistJson.trim());
+      }
+      formData.append("specificationIsComplete", String(specificationIsComplete));
+      formData.append("promptVersion", promptVersion);
+      formData.append("autoDispatch", "true");
+
+      const response = await fetch("/api/v1/qc/jobs", {
+        method: "POST",
+        body: formData,
       });
-    }, 1100);
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to create QC job in queue.");
+      }
+
+      const jobId = data.job_id;
+      setProcessingStage(1);
+
+      // Real status polling
+      let pollCount = 0;
+      const pollInterval = setInterval(async () => {
+        pollCount++;
+        try {
+          const jobRes = await fetch(`/api/v1/qc/jobs/${jobId}`);
+          const jobData = await jobRes.json();
+
+          if (jobData.status === "QUEUED") {
+            setProcessingStage(1);
+          } else if (jobData.status === "EXTRACTING") {
+            setProcessingStage(2);
+          } else if (jobData.status === "ANALYZING") {
+            setProcessingStage(3);
+          } else if (jobData.status === "VALIDATING") {
+            setProcessingStage(4);
+          } else if (jobData.status === "COMPLETED") {
+            clearInterval(pollInterval);
+            setProcessingStage(5);
+            setTimeout(() => {
+              router.push(`/app/reports/${jobId}`);
+            }, 600);
+          } else if (jobData.status === "FAILED") {
+            clearInterval(pollInterval);
+            setProcessingError(jobData.error_message || "QC processing failed on server.");
+          }
+        } catch (pollErr) {
+          console.error("Poll error", pollErr);
+        }
+
+        if (pollCount > 80) {
+          clearInterval(pollInterval);
+          setProcessingError("QC Job timed out waiting for worker response.");
+        }
+      }, 1500);
+
+    } catch (err: any) {
+      console.error("[QC_RUN_ERROR]", err);
+      setProcessingError(err.message || "Failed to dispatch QC job to worker queue.");
+    }
   };
 
   return (
@@ -583,6 +641,80 @@ export default function CheckWorkflowPage() {
                   subtext: `${s.rule_count} rules`,
                 }))}
               />
+
+              {/* Extraction Prompt Version */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-300 block">
+                  AI Model & Prompt Version
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPromptVersion("extract_v1")}
+                    className={`py-2 px-3 rounded-lg text-xs font-mono transition-all border ${
+                      promptVersion === "extract_v1"
+                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50"
+                        : "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white"
+                    }`}
+                  >
+                    extract_v1 (Standard)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPromptVersion("extract_v2")}
+                    className={`py-2 px-3 rounded-lg text-xs font-mono transition-all border ${
+                      promptVersion === "extract_v2"
+                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50"
+                        : "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white"
+                    }`}
+                  >
+                    extract_v2 (+Rule 8)
+                  </button>
+                </div>
+              </div>
+
+              {/* Reference Netlist (wire_no, colour, size_mm2, source, destination) */}
+              <div className="pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    Reference Netlist (Optional)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowNetlistEditor(!showNetlistEditor)}
+                    className="text-xs text-cyan-400 hover:underline font-mono"
+                  >
+                    {showNetlistEditor ? "Hide Editor ▲" : "Configure JSON ▼"}
+                  </button>
+                </div>
+
+                {showNetlistEditor && (
+                  <div className="space-y-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-xs">
+                    <p className="text-[11px] text-slate-400 leading-relaxed font-mono">
+                      Expected format: <br />
+                      <code className="text-cyan-300 text-[10px]">
+                        [{`{"wire_no":"122A","colour":"WH","size_mm2":1.5,"source":"CFB1","destination":"CN-36"}`}]
+                      </code>
+                    </p>
+                    <textarea
+                      rows={5}
+                      value={expectedNetlistJson}
+                      onChange={(e) => setExpectedNetlistJson(e.target.value)}
+                      placeholder='[&#10;  {"wire_no": "122A", "colour": "WH", "size_mm2": 1.5, "source": "CFB1", "destination": "CN-36"}&#10;]'
+                      className="w-full p-2.5 rounded-lg bg-black/60 border border-slate-800 font-mono text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+                    />
+                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={specificationIsComplete}
+                        onChange={(e) => setSpecificationIsComplete(e.target.checked)}
+                        className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-0"
+                      />
+                      <span>Specification is declared 100% complete (extra wires fail QC)</span>
+                    </label>
+                  </div>
+                )}
+              </div>
 
               <div className="pt-2 space-y-2">
                 <Button
