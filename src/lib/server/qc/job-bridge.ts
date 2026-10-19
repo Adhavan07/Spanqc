@@ -87,7 +87,7 @@ export async function reconcileQuotaOnce(jobId: string, tenantId: string): Promi
 
     console.log(`[QC_QUOTA_RECONCILED] Restored quota check for tenant ${tenantId} (Job: ${jobId}).`);
     return true;
-  });
+  }, { maxWait: 15000, timeout: 30000 });
 }
 
 /**
@@ -202,7 +202,7 @@ export async function createQCJob(input: CreateJobInput) {
         isDuplicate: false,
         quotaReserved: true,
       };
-    });
+    }, { maxWait: 15000, timeout: 30000 });
   } catch (err: any) {
     // If a concurrent sub-millisecond race condition violated the unique constraint,
     // fetch the winning job and return it cleanly without overspending quota
