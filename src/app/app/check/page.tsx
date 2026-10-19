@@ -54,7 +54,20 @@ export default function CheckWorkflowPage() {
   } | null>(null);
 
   const [selectedProject, setSelectedProject] = useState(INITIAL_PROJECTS[0].id);
+  const [tenantProjects, setTenantProjects] = useState<{ id: string; name: string; customer?: string }[]>([]);
   const [selectedStandard, setSelectedStandard] = useState(SAMPLE_STANDARDS[0].code);
+
+  React.useEffect(() => {
+    fetch("/api/v1/projects")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: any[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setTenantProjects(data);
+          setSelectedProject(data[0].id);
+        }
+      })
+      .catch((err) => console.warn("Failed to load tenant projects:", err));
+  }, []);
 
   // Reference Netlist input (wire_no, colour, size_mm2, source, destination)
   const [expectedNetlistJson, setExpectedNetlistJson] = useState("");
@@ -623,11 +636,19 @@ export default function CheckWorkflowPage() {
                 label="Target Project"
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
-                options={INITIAL_PROJECTS.map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                  subtext: p.customer || undefined,
-                }))}
+                options={
+                  tenantProjects.length > 0
+                    ? tenantProjects.map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                        subtext: p.customer || undefined,
+                      }))
+                    : INITIAL_PROJECTS.map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                        subtext: p.customer || undefined,
+                      }))
+                }
               />
 
               {/* Standard to Validate Against */}

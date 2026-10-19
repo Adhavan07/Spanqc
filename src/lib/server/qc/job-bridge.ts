@@ -164,13 +164,35 @@ export async function createQCJob(input: CreateJobInput) {
           }
 
           // Project ownership validation
-          const project = await tx.project.findFirst({
+          let project = await tx.project.findFirst({
             where: { id: projectId, tenantId },
             select: { id: true, status: true },
           });
 
           if (!project || project.status !== "ACTIVE") {
-            throw new JobBridgeError("Project not found or inactive within tenant organization.", 404);
+            // If placeholder or default project ID from UI was submitted, fall back to tenant's active project or auto-create one
+            if (!projectId || projectId === "prj-001" || projectId === "default") {
+              const fallback = await tx.project.findFirst({
+                where: { tenantId, status: "ACTIVE" },
+                select: { id: true, status: true },
+              });
+              if (fallback) {
+                project = fallback;
+              } else {
+                project = await tx.project.create({
+                  data: {
+                    tenantId,
+                    name: "General Inspection Project",
+                    description: "Default project for technical publication wiring checks",
+                    standard: standard || "IPC/WHMA-A-620D",
+                    status: "ACTIVE",
+                  },
+                  select: { id: true, status: true },
+                });
+              }
+            } else {
+              throw new JobBridgeError("Project not found or inactive within tenant organization.", 404);
+            }
           }
 
           // Atomically increment quotaUsed
@@ -185,7 +207,7 @@ export async function createQCJob(input: CreateJobInput) {
           const job = await tx.qCJob.create({
             data: {
               tenantId,
-              projectId,
+              projectId: project.id,
               userId,
               idempotencyKey: cleanIdempotencyKey,
               documentName: validation.sanitizedFilename,
