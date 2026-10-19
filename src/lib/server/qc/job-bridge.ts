@@ -118,13 +118,115 @@ export async function createQCJob(input: CreateJobInput) {
       ? idempotencyKey.trim().slice(0, 128)
       : null;
 
-  // 3. Atomically check idempotency and reserve quota inside Prisma transaction
-  let result;
-  try {
-    result = await db.$transaction(async (tx) => {
-      // Idempotency check: if job exists for this tenant with identical idempotencyKey, return existing job
-      if (cleanIdempotencyKey) {
-        const existing = await tx.qCJob.findUnique({
+  // 3. Store file in private tenant storage BEFORE starting the DB transaction
+  const storageRes = await storeDocument(tenantId, validation.sha256, fileBuffer);
+
+  // 4. Atomically check idempotency and reserve quota inside Prisma transaction with retry on busy lock
+  let result: { job: any; isDuplicate: boolean; quotaReserved: boolean } | undefined;
+  let retries = 5;
+  while (retries > 0) {
+    try {
+      result = await db.$transaction(
+        async (tx) => {
+          // Idempotency check: if job exists for this tenant with identical idempotencyKey, return existing job
+          if (cleanIdempotencyKey) {
+            const existing = await tx.qCJob.findUnique({
+              where: {
+                tenantId_idempotencyKey: {
+                  tenantId,
+                  idempotencyKey: cleanIdempotencyKey,
+                },
+              },
+            });
+            if (existing) {
+              return {
+                job: existing,
+                isDuplicate: true,
+                quotaReserved: false,
+              };
+            }
+          }
+
+          // Tenant check and atomic quota validation
+          const tenant = await tx.tenant.findUnique({
+            where: { id: tenantId },
+            select: { id: true, status: true, checkQuota: true, quotaUsed: true },
+          });
+
+          if (!tenant || tenant.status !== "ACTIVE") {
+            throw new JobBridgeError("Tenant organization is inactive or not found.", 403);
+          }
+
+          if (tenant.quotaUsed >= tenant.checkQuota) {
+            throw new QuotaExceededError(
+              `Monthly QC check quota exceeded (${tenant.quotaUsed}/${tenant.checkQuota} checks used).`
+            );
+          }
+
+          // Project ownership validation
+          const project = await tx.project.findFirst({
+            where: { id: projectId, tenantId },
+            select: { id: true, status: true },
+          });
+
+          if (!project || project.status !== "ACTIVE") {
+            throw new JobBridgeError("Project not found or inactive within tenant organization.", 404);
+          }
+
+          // Atomically increment quotaUsed
+          await tx.tenant.update({
+            where: { id: tenantId },
+            data: {
+              quotaUsed: { increment: 1 },
+            },
+          });
+
+          // Create durable QCJob record
+          const job = await tx.qCJob.create({
+            data: {
+              tenantId,
+              projectId,
+              userId,
+              idempotencyKey: cleanIdempotencyKey,
+              documentName: validation.sanitizedFilename,
+              documentSha256: validation.sha256,
+              storageKey: storageRes.storageKey,
+              standard,
+              expectedNetlistJson: expectedNetlistJson || null,
+              specificationIsComplete: specificationIsComplete ?? null,
+              extractionIsVerified: extractionIsVerified ?? null,
+              scopeDescription: scopeDescription || null,
+              status: "QUEUED",
+            },
+          });
+
+          return {
+            job,
+            isDuplicate: false,
+            quotaReserved: true,
+          };
+        },
+        { maxWait: 15000, timeout: 30000 }
+      );
+      break;
+    } catch (err: any) {
+      if (
+        (err?.code === "P1008" ||
+          err?.code === "P2028" ||
+          err?.code === "P2034" ||
+          err?.message?.includes("timeout") ||
+          err?.message?.includes("busy")) &&
+        retries > 1
+      ) {
+        retries--;
+        await new Promise((resolve) => setTimeout(resolve, 50 * (6 - retries)));
+        continue;
+      }
+
+      // If a concurrent sub-millisecond race condition violated the unique constraint,
+      // fetch the winning job and return it cleanly without overspending quota
+      if (err?.code === "P2002" && cleanIdempotencyKey) {
+        const existing = await db.qCJob.findUnique({
           where: {
             tenantId_idempotencyKey: {
               tenantId,
@@ -133,97 +235,20 @@ export async function createQCJob(input: CreateJobInput) {
           },
         });
         if (existing) {
-          return {
+          result = {
             job: existing,
             isDuplicate: true,
             quotaReserved: false,
           };
+          break;
         }
       }
-
-      // Tenant check and atomic quota validation
-      const tenant = await tx.tenant.findUnique({
-        where: { id: tenantId },
-        select: { id: true, status: true, checkQuota: true, quotaUsed: true },
-      });
-
-      if (!tenant || tenant.status !== "ACTIVE") {
-        throw new JobBridgeError("Tenant organization is inactive or not found.", 403);
-      }
-
-      if (tenant.quotaUsed >= tenant.checkQuota) {
-        throw new QuotaExceededError(
-          `Monthly QC check quota exceeded (${tenant.quotaUsed}/${tenant.checkQuota} checks used).`
-        );
-      }
-
-      // Project ownership validation
-      const project = await tx.project.findFirst({
-        where: { id: projectId, tenantId },
-        select: { id: true, status: true },
-      });
-
-      if (!project || project.status !== "ACTIVE") {
-        throw new JobBridgeError("Project not found or inactive within tenant organization.", 404);
-      }
-
-      // Atomically increment quotaUsed
-      await tx.tenant.update({
-        where: { id: tenantId },
-        data: {
-          quotaUsed: { increment: 1 },
-        },
-      });
-
-      // Store file in private tenant storage
-      const storageRes = await storeDocument(tenantId, validation.sha256, fileBuffer);
-
-      // Create durable QCJob record
-      const job = await tx.qCJob.create({
-        data: {
-          tenantId,
-          projectId,
-          userId,
-          idempotencyKey: cleanIdempotencyKey,
-          documentName: validation.sanitizedFilename,
-          documentSha256: validation.sha256,
-          storageKey: storageRes.storageKey,
-          standard,
-          expectedNetlistJson: expectedNetlistJson || null,
-          specificationIsComplete: specificationIsComplete ?? null,
-          extractionIsVerified: extractionIsVerified ?? null,
-          scopeDescription: scopeDescription || null,
-          status: "QUEUED",
-        },
-      });
-
-      return {
-        job,
-        isDuplicate: false,
-        quotaReserved: true,
-      };
-    }, { maxWait: 15000, timeout: 30000 });
-  } catch (err: any) {
-    // If a concurrent sub-millisecond race condition violated the unique constraint,
-    // fetch the winning job and return it cleanly without overspending quota
-    if (err?.code === "P2002" && cleanIdempotencyKey) {
-      const existing = await db.qCJob.findUnique({
-        where: {
-          tenantId_idempotencyKey: {
-            tenantId,
-            idempotencyKey: cleanIdempotencyKey,
-          },
-        },
-      });
-      if (existing) {
-        return {
-          job: existing,
-          isDuplicate: true,
-          quotaReserved: false,
-        };
-      }
+      throw err;
     }
-    throw err;
+  }
+
+  if (!result) {
+    throw new JobBridgeError("Failed to create QC job after concurrent retry attempts.", 500);
   }
 
   // If a new job was created, launch background processing
