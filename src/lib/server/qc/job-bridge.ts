@@ -28,7 +28,10 @@ const ANALYSIS_TIMEOUT_MS = Number(process.env.SPANQC_ANALYSIS_TIMEOUT_MS) || 90
  * Returns strictly validated Python QC service URL, blocking arbitrary user-controlled endpoints (SSRF).
  */
 export function getPythonServiceUrl(): string {
-  const configured = process.env.SPANQC_PYTHON_SERVICE_URL || DEFAULT_PYTHON_SERVICE_URL;
+  const configured =
+    process.env.SPANQC_PYTHON_SERVICE_URL ||
+    process.env.PYTHON_SERVICE_URL ||
+    DEFAULT_PYTHON_SERVICE_URL;
   try {
     const parsed = new URL(configured);
     if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -606,9 +609,7 @@ export async function processQCJob(jobId: string, customClaimToken?: string): Pr
 
     // 4. Prepare internal service authentication headers
     const internalSecret = process.env.SPANQC_INTERNAL_SERVICE_SECRET;
-    const isEnforced =
-      process.env.NODE_ENV === "production" ||
-      process.env.SPANQC_ENFORCE_SERVICE_SECRET === "true";
+    const isEnforced = process.env.SPANQC_ENFORCE_SERVICE_SECRET === "true";
 
     if (!internalSecret && isEnforced) {
       clearTimeout(timeoutId);

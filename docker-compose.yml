@@ -19,11 +19,13 @@ services:
       - AUTH_SECRET=${AUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost}
       - PYTHON_SERVICE_URL=http://core:8000
+      - SPANQC_PYTHON_SERVICE_URL=http://core:8000
       - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
       - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
       - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
       - NEXT_PUBLIC_RAZORPAY_KEY_ID=${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+      - SPANQC_INTERNAL_SERVICE_SECRET=${SPANQC_INTERNAL_SERVICE_SECRET:-}
     volumes:
       - spanqc_data:/app/data
       - spanqc_storage:/app/storage

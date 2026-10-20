@@ -29,7 +29,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 ENV DATABASE_URL="file:/app/data/dev.db"
 ENV AUTH_SECRET="build-time-static-secret-for-compilation-only"
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 RUN npm run build
 
