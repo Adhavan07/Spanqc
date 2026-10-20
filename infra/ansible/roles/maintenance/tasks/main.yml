@@ -33,10 +33,10 @@
 
 - name: Reload systemd daemon
   systemd:
-    daemon_reload: yes
+    daemon_reload: true
 
 - name: Enable and start docker-prune timer
   systemd:
     name: docker-prune.timer
-    enabled: yes
+    enabled: true
     state: started

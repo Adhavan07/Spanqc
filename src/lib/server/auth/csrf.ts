@@ -17,6 +17,7 @@ export function getTrustedHosts(): Set<string> {
     process.env.NEXT_PUBLIC_APP_URL,
     process.env.CANONICAL_ORIGIN,
     process.env.ALLOWED_ORIGINS,
+    process.env.NEXTAUTH_URL,
   ];
 
   for (const src of configSources) {
@@ -103,7 +104,7 @@ export function validateOrigin(request: Request): boolean {
 
     // B. Check against local request host (for direct local connections or local dev)
     if (localRequestHost && originHost === localRequestHost) {
-      if (process.env.NODE_ENV !== "production" || trustedHosts.has(localRequestHost)) {
+      if (process.env.NODE_ENV !== "production" || trustedHosts.size === 0 || trustedHosts.has(localRequestHost)) {
         return true;
       }
     }

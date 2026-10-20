@@ -24,16 +24,22 @@ def _pages(data: bytes, filename: str) -> List[tuple[bytes, str]]:
     head = data[:8]
     if head.startswith(b"%PDF"):
         import pymupdf
-
-        doc = pymupdf.open(stream=data, filetype="pdf")
-        if doc.page_count > MAX_PAGES:
-            raise HTTPException(413, f"PDF has {doc.page_count} pages; the limit is {MAX_PAGES}.")
-        return [(p.get_pixmap(dpi=200).tobytes("png"), "image/png") for p in doc]
+        try:
+            doc = pymupdf.open(stream=data, filetype="pdf")
+            if doc.page_count > MAX_PAGES:
+                raise HTTPException(413, f"PDF has {doc.page_count} pages; the limit is {MAX_PAGES}.")
+            return [(p.get_pixmap(dpi=200).tobytes("png"), "image/png") for p in doc]
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, f"PDF document could not be opened: {exc}")
     if head.startswith(b"\x89PNG"):
         return [(data, "image/png")]
     if head[:3] == b"\xff\xd8\xff":
         return [(data, "image/jpeg")]
-    raise HTTPException(415, "Unsupported file type. Upload a PDF, PNG or JPG.")
+    if head.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+        return [(data, "image/webp")]
+    raise HTTPException(415, "Unsupported file type. Upload a PDF, PNG, JPG, or WEBP.")
 
 
 def _parse_expected(raw: Optional[str]) -> List[Expected]:

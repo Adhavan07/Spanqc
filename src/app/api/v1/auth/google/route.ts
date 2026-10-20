@@ -4,6 +4,7 @@ import { db } from "@/lib/server/db";
 import { hashPassword } from "@/lib/server/auth/passwords";
 import {
   createServerSession,
+  isRequestSecure,
   SESSION_COOKIE_NAME,
   SESSION_DURATION_SECONDS,
 } from "@/lib/server/auth/session";
@@ -194,6 +195,17 @@ export async function POST(request: Request) {
           tenant: true,
         },
       });
+
+      // Auto-provision initial default project for this new tenant
+      await db.project.create({
+        data: {
+          tenantId: tenant.id,
+          name: "General Inspection Project",
+          description: "Default project for technical publication wiring checks",
+          standard: "IPC/WHMA-A-620D",
+          status: "ACTIVE",
+        },
+      });
     }
 
     // 5. Issue persistent server session
@@ -247,7 +259,7 @@ export async function POST(request: Request) {
       name: SESSION_COOKIE_NAME,
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isRequestSecure(request),
       sameSite: "lax",
       path: "/",
       maxAge: SESSION_DURATION_SECONDS,

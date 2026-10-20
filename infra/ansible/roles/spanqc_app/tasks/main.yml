@@ -11,8 +11,8 @@
   synchronize:
     src: "{{ playbook_dir }}/../../"
     dest: "{{ app_dir }}/"
-    delete: no
-    recursive: yes
+    delete: false
+    recursive: true
     rsync_opts:
       - "--exclude=.git"
       - "--exclude=node_modules"
@@ -31,7 +31,7 @@
     path: "{{ app_dir }}"
     owner: "{{ app_user }}"
     group: "{{ app_user }}"
-    recurse: yes
+    recurse: true
 
 - name: Render production environment configuration (.env)
   template:

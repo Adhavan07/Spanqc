@@ -53,7 +53,7 @@ export default function CheckWorkflowPage() {
     sampleKey?: "wh402" | "mcc" | "tb200";
   } | null>(null);
 
-  const [selectedProject, setSelectedProject] = useState(INITIAL_PROJECTS[0].id);
+  const [selectedProject, setSelectedProject] = useState("");
   const [tenantProjects, setTenantProjects] = useState<{ id: string; name: string; customer?: string }[]>([]);
   const [selectedStandard, setSelectedStandard] = useState(SAMPLE_STANDARDS[0].code);
 
@@ -63,7 +63,7 @@ export default function CheckWorkflowPage() {
       .then((data: any[]) => {
         if (Array.isArray(data) && data.length > 0) {
           setTenantProjects(data);
-          setSelectedProject(data[0].id);
+          setSelectedProject((prev) => (prev && data.some((p: any) => p.id === prev) ? prev : data[0].id));
         }
       })
       .catch((err) => console.warn("Failed to load tenant projects:", err));
@@ -221,9 +221,16 @@ export default function CheckWorkflowPage() {
     }
 
     try {
+      const activeProjectId =
+        tenantProjects.length > 0
+          ? tenantProjects.some((p) => p.id === selectedProject)
+            ? selectedProject
+            : tenantProjects[0].id
+          : selectedProject || "default";
+
       const formData = new FormData();
       formData.append("file", fileToUpload, fileData?.name || "schematic.pdf");
-      formData.append("projectId", selectedProject);
+      formData.append("projectId", activeProjectId);
       formData.append("standard", selectedStandard);
       if (expectedNetlistJson.trim()) {
         formData.append("expectedNetlistJson", expectedNetlistJson.trim());
@@ -255,13 +262,15 @@ export default function CheckWorkflowPage() {
 
           if (jobData.status === "QUEUED") {
             setProcessingStage(1);
-          } else if (jobData.status === "EXTRACTING") {
-            setProcessingStage(2);
+          } else if (jobData.status === "PROCESSING" || jobData.status === "EXTRACTING") {
+            // Smoothly advance stage while processing
+            const stage = Math.min(4, Math.max(2, Math.floor(pollCount / 3) + 2));
+            setProcessingStage(stage);
           } else if (jobData.status === "ANALYZING") {
             setProcessingStage(3);
           } else if (jobData.status === "VALIDATING") {
             setProcessingStage(4);
-          } else if (jobData.status === "COMPLETED") {
+          } else if (jobData.status === "COMPLETED" || jobData.status === "REVIEW_REQUIRED") {
             clearInterval(pollInterval);
             setProcessingStage(5);
             setTimeout(() => {
@@ -275,7 +284,7 @@ export default function CheckWorkflowPage() {
           console.error("Poll error", pollErr);
         }
 
-        if (pollCount > 80) {
+        if (pollCount > 240) {
           clearInterval(pollInterval);
           setProcessingError("QC Job timed out waiting for worker response.");
         }
@@ -643,11 +652,13 @@ export default function CheckWorkflowPage() {
                         label: p.name,
                         subtext: p.customer || undefined,
                       }))
-                    : INITIAL_PROJECTS.map((p) => ({
-                        value: p.id,
-                        label: p.name,
-                        subtext: p.customer || undefined,
-                      }))
+                    : [
+                        {
+                          value: "default",
+                          label: "General Inspection Project",
+                          subtext: "Default active project",
+                        },
+                      ]
                 }
               />
 

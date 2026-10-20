@@ -1,7 +1,7 @@
 ---
 - name: Update apt cache
   apt:
-    update_cache: yes
+    update_cache: true
     cache_valid_time: 3600
 
 - name: Install system essentials
@@ -41,7 +41,7 @@
 - name: Enable swapfile
   command: swapon /swapfile
   when: not swap_stat.stat.exists
-  ignore_errors: yes
+  ignore_errors: true
 
 - name: Persist swapfile in /etc/fstab
   mount:
