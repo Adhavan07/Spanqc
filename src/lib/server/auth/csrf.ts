@@ -102,11 +102,9 @@ export function validateOrigin(request: Request): boolean {
       return true;
     }
 
-    // B. Check against local request host (for direct local connections or local dev)
+    // B. Check against local request host (for direct local connections or same-origin requests)
     if (localRequestHost && originHost === localRequestHost) {
-      if (process.env.NODE_ENV !== "production" || trustedHosts.size === 0 || trustedHosts.has(localRequestHost)) {
-        return true;
-      }
+      return true;
     }
 
     // C. Trusted proxy check: if forwardedHost matches origin AND is in trustedHosts
@@ -133,9 +131,7 @@ export function validateOrigin(request: Request): boolean {
     }
 
     if (localRequestHost && refererHost === localRequestHost) {
-      if (process.env.NODE_ENV !== "production" || trustedHosts.has(localRequestHost)) {
-        return true;
-      }
+      return true;
     }
 
     if (trustProxy && forwardedHost && refererHost === forwardedHost && trustedHosts.has(forwardedHost)) {

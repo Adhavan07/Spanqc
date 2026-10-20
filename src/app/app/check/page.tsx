@@ -118,16 +118,25 @@ export default function CheckWorkflowPage() {
     }
 
     // 3. Check MIME type / extension
-    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const lowerName = file.name.toLowerCase();
+    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    const isZip =
+      file.type === "application/zip" ||
+      file.type === "application/x-zip-compressed" ||
+      lowerName.endsWith(".zip");
+    const isSvg =
+      file.type === "image/svg+xml" ||
+      lowerName.endsWith(".svg");
     const isImage =
       file.type.startsWith("image/") ||
-      file.name.toLowerCase().endsWith(".png") ||
-      file.name.toLowerCase().endsWith(".jpg") ||
-      file.name.toLowerCase().endsWith(".jpeg");
+      lowerName.endsWith(".png") ||
+      lowerName.endsWith(".jpg") ||
+      lowerName.endsWith(".jpeg") ||
+      isSvg;
 
-    if (!isPdf && !isImage) {
+    if (!isPdf && !isImage && !isZip) {
       setUploadError(
-        `Unsupported File Format: "${file.name}". SpanQC accepts wiring schematics in PDF, PNG, JPG, or JPEG format.`
+        `Unsupported File Format: "${file.name}". SpanQC accepts wiring schematics in ZIP, PDF, PNG, JPG, JPEG, or SVG format.`
       );
       return;
     }
@@ -147,8 +156,8 @@ export default function CheckWorkflowPage() {
     setFileData({
       name: file.name,
       size: formatBytes(file.size),
-      pages: isImage ? 1 : Math.max(1, Math.min(16, Math.round(file.size / (200 * 1024)))),
-      mime: file.type || (isPdf ? "application/pdf" : "image/png"),
+      pages: isImage ? 1 : isZip ? 1 : Math.max(1, Math.min(16, Math.round(file.size / (200 * 1024)))),
+      mime: file.type || (isPdf ? "application/pdf" : isZip ? "application/zip" : isSvg ? "image/svg+xml" : "image/png"),
       hash: hash,
     });
     setStep("PREVIEW");
@@ -360,7 +369,7 @@ export default function CheckWorkflowPage() {
           <div className="p-10 rounded-2xl border-2 border-dashed border-[#222e47] hover:border-cyan-400 bg-[#0c101a] transition-all text-center relative group shadow-2xl shadow-black/40 hover:shadow-cyan-500/5">
             <input
               type="file"
-              accept=".pdf,.png,.jpg,.jpeg"
+              accept=".pdf,.png,.jpg,.jpeg,.svg,.zip"
               onChange={handleFileUpload}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
             />
@@ -371,10 +380,10 @@ export default function CheckWorkflowPage() {
               Upload a wiring diagram manual
             </h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto mb-4">
-              Drag and drop your engineering schematic document here, or click to browse files.
+              Drag and drop your engineering schematic document or ZIP package here, or click to browse files.
             </p>
             <div className="inline-flex items-center gap-4 text-[11px] font-mono text-slate-400 bg-[#111726] px-4 py-2 rounded-xl border border-[#1b253b]">
-              <span>SUPPORTED: PDF, PNG, JPG, JPEG</span>
+              <span>SUPPORTED: ZIP, PDF, PNG, JPG, SVG</span>
               <span>•</span>
               <span>MAX SIZE: 100MB</span>
               <span>•</span>

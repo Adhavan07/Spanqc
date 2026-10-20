@@ -56,6 +56,45 @@ def test_pdf_pages_are_split_and_each_sent(png_bytes):
     assert r.status_code == 200 and client.calls == 2 and r.json()["total_page_count"] == 2
 
 
+def test_svg_direct_upload_is_rendered():
+    svg_data = b'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="red"/></svg>'
+    client = FakeClient([reply([wire()])])
+    r = TestClient(create_app(lambda: client)).post("/api/v1/analyze", files={"file": ("diagram.svg", svg_data, "image/svg+xml")})
+    assert r.status_code == 200 and client.calls == 1 and r.json()["total_page_count"] == 1
+
+
+def test_zip_with_multiple_diagrams_extracted_and_processed(png_bytes):
+    import io, zipfile
+    svg_data = b'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>'
+    zb = io.BytesIO()
+    with zipfile.ZipFile(zb, "w") as zf:
+        zf.writestr("sheet1.png", png_bytes)
+        zf.writestr("sheet2.svg", svg_data)
+        zf.writestr("ignored_notes.txt", b"plain text notes")
+
+    client = FakeClient([reply([wire()]), reply([wire()])])
+    r = TestClient(create_app(lambda: client)).post(
+        "/api/v1/analyze",
+        files={"file": ("schematics.zip", zb.getvalue(), "application/zip")},
+        data={"specification_is_complete": "true"}
+    )
+    assert r.status_code == 200
+    assert client.calls == 2
+    assert r.json()["total_page_count"] == 2
+
+
+def test_empty_or_no_diagram_zip_rejected():
+    import io, zipfile
+    zb = io.BytesIO()
+    with zipfile.ZipFile(zb, "w") as zf:
+        zf.writestr("readme.txt", b"no diagrams here")
+
+    app = create_app(lambda: FakeClient([]))
+    r = TestClient(app).post("/api/v1/analyze", files={"file": ("empty.zip", zb.getvalue(), "application/zip")})
+    assert r.status_code == 422
+
+
+
 # ---- real data: the Tech Pub output SVGs act as ground truth ----
 @pytest.mark.parametrize("name,minimum", [("FB1-1.svg", 20), ("2-1.svg", 20), ("5.svg", 20)])
 def test_real_svg_ground_truth_has_wire_labels(name, minimum):
