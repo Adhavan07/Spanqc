@@ -4,11 +4,13 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { ScrollHeroCanvas } from "@/components/marketing/ScrollHeroCanvas";
 import { DemoRequestModal } from "@/components/marketing/DemoRequestModal";
-import { ParallaxQCCards } from "@/components/marketing/ParallaxQCCards";
+import { SmoothScrollProvider } from "@/components/scroll/SmoothScrollProvider";
+import { HorizontalCards } from "@/components/scroll/HorizontalCards";
+import { StackedCards } from "@/components/scroll/StackedCards";
 import { BillingCardsSection } from "@/components/marketing/BillingCardsSection";
 import { SpaceshipFooter } from "@/components/marketing/SpaceshipFooter";
 import { RazorpayCheckoutModal } from "@/components/billing/RazorpayCheckoutModal";
-import { ArrowRight, CheckCircle2, Shield, Sparkles, Cpu, Layers } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 export default function HomePage() {
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
@@ -57,9 +59,10 @@ export default function HomePage() {
   };
 
   return (
-    <div className="relative min-h-screen bg-[#050a17] text-[#a9b8d3] selection:bg-[#2f8cff]/30 selection:text-white">
-      {/* 120-Frame Scroll-Scrubbed Canvas Engine */}
-      <ScrollHeroCanvas />
+    <SmoothScrollProvider>
+      <div className="relative min-h-screen bg-[#050a17] text-[#a9b8d3] selection:bg-[#2f8cff]/30 selection:text-white">
+        {/* 120-Frame Scroll-Scrubbed Canvas Engine */}
+        <ScrollHeroCanvas />
 
       {/* Header Navigation */}
       <header className="fixed top-0 left-0 right-0 z-30 px-[clamp(24px,6vw,96px)] py-5 bg-gradient-to-b from-[#050a17]/75 via-[#050a17]/50 to-transparent pointer-events-none">
@@ -156,86 +159,11 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* 2. Expanded Interactive QC Detections with Parallax Floating Cards */}
-        <ParallaxQCCards />
+        {/* SECTION A: Pinned Horizontal Card Pipeline Scroll */}
+        <HorizontalCards />
 
-        {/* 3. How It Works Section: Expanded and Structured */}
-        <section
-          className="relative w-full py-28 md:py-36 bg-[#050915] border-t border-white/5 overflow-hidden"
-          id="how-it-works"
-        >
-          <div className="max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-12">
-            <div className="text-center max-w-3xl mx-auto mb-16">
-              <span className="text-xs font-bold uppercase tracking-[0.25em] text-[#7f93b8] mb-3 block">
-                Verification Workflow
-              </span>
-              <h2 className="text-[clamp(32px,3.8vw,48px)] font-bold text-[#eaf1ff] tracking-tight leading-[1.15] mb-4">
-                From Schematic Upload to Certified QC Audit in Seconds
-              </h2>
-              <p className="text-[17px] text-[#a9b8d3] leading-relaxed">
-                Four automated phases guarantee zero human error in wire sizing, pinout continuity, and standards compliance.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Step 1: Detect */}
-              <div className="p-7 rounded-2xl bg-[#091124] border border-[rgba(80,130,220,0.2)] hover:border-[#00f0ff]/40 transition-all hover:-translate-y-1 group">
-                <div className="w-12 h-12 rounded-xl bg-[#00f0ff]/10 text-[#00f0ff] flex items-center justify-center font-bold text-lg mb-5 border border-[#00f0ff]/20">
-                  01
-                </div>
-                <h3 className="text-lg font-bold text-[#eaf1ff] mb-2 flex items-center justify-between">
-                  <span>Detect</span>
-                  <Cpu className="w-4 h-4 text-[#00f0ff]" />
-                </h3>
-                <p className="text-sm text-[#a9b8d3] leading-relaxed">
-                  Optical recognition extracts terminal blocks (TB-01, TB-02), wire labels, and signal connections from uploaded PDF/CAD diagrams.
-                </p>
-              </div>
-
-              {/* Step 2: Analyze */}
-              <div className="p-7 rounded-2xl bg-[#091124] border border-[rgba(80,130,220,0.2)] hover:border-[#2f8cff]/40 transition-all hover:-translate-y-1 group">
-                <div className="w-12 h-12 rounded-xl bg-[#2f8cff]/10 text-[#2f8cff] flex items-center justify-center font-bold text-lg mb-5 border border-[#2f8cff]/20">
-                  02
-                </div>
-                <h3 className="text-lg font-bold text-[#eaf1ff] mb-2 flex items-center justify-between">
-                  <span>Analyze</span>
-                  <Layers className="w-4 h-4 text-[#2f8cff]" />
-                </h3>
-                <p className="text-sm text-[#a9b8d3] leading-relaxed">
-                  Compares every conductor, gauge rating, and pin assignment against loaded IPC/WHMA-A-620 and UL 508A engineering rules.
-                </p>
-              </div>
-
-              {/* Step 3: Validate */}
-              <div className="p-7 rounded-2xl bg-[#091124] border border-[rgba(80,130,220,0.2)] hover:border-[#f5b73b]/40 transition-all hover:-translate-y-1 group">
-                <div className="w-12 h-12 rounded-xl bg-[#f5b73b]/10 text-[#f5b73b] flex items-center justify-center font-bold text-lg mb-5 border border-[#f5b73b]/20">
-                  03
-                </div>
-                <h3 className="text-lg font-bold text-[#eaf1ff] mb-2 flex items-center justify-between">
-                  <span>Validate</span>
-                  <Shield className="w-4 h-4 text-[#f5b73b]" />
-                </h3>
-                <p className="text-sm text-[#a9b8d3] leading-relaxed">
-                  Marks each mismatch with sub-millimeter bounding coordinates, confidence metrics, and precise severity classifications.
-                </p>
-              </div>
-
-              {/* Step 4: Report */}
-              <div className="p-7 rounded-2xl bg-[#091124] border border-[rgba(80,130,220,0.2)] hover:border-[#1ed6a0]/40 transition-all hover:-translate-y-1 group">
-                <div className="w-12 h-12 rounded-xl bg-[#1ed6a0]/10 text-[#1ed6a0] flex items-center justify-center font-bold text-lg mb-5 border border-[#1ed6a0]/20">
-                  04
-                </div>
-                <h3 className="text-lg font-bold text-[#eaf1ff] mb-2 flex items-center justify-between">
-                  <span>Report</span>
-                  <CheckCircle2 className="w-4 h-4 text-[#1ed6a0]" />
-                </h3>
-                <p className="text-sm text-[#a9b8d3] leading-relaxed">
-                  Generates tamper-evident PDF audit certificates and multi-sheet Excel (.xlsx) workbooks for ISO 9001 quality sign-off.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* SECTION B: Pinned 3D Vertical Stacked Cards Deck */}
+        <StackedCards />
 
         {/* 4. Authoritative Billing & Pricing Section */}
         <BillingCardsSection
@@ -284,5 +212,6 @@ export default function HomePage() {
         isBillingEnabled={false}
       />
     </div>
+  </SmoothScrollProvider>
   );
 }

@@ -48,6 +48,11 @@ __pycache__/
 
 # private document storage
 /storage/
+/test_data/
+*.pdf
+*.xlsx
+
+
 
 # agent & internal assistant documentation
 AGENTS.md

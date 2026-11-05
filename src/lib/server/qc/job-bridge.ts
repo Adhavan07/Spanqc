@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
 import { db } from "../db";
 import { storeDocument, retrieveDocument } from "../storage/document-store";
 import { validateUploadFile, DocumentValidationError } from "./validator";
 import type { QCJobStatus, QCOverallOutcome, QCReport } from "./types";
+
+const execFileAsync = promisify(execFile);
 
 export class QuotaExceededError extends Error {
   public statusCode = 402;
@@ -625,28 +632,74 @@ export async function processQCJob(jobId: string, customClaimToken?: string): Pr
     }
 
     // 5. Invoke Python service with bounded timeout
-    const response = await fetch(`${pythonServiceUrl}/api/v1/analyze`, {
-      method: "POST",
-      headers,
-      body: formData,
-      signal: controller.signal,
-    });
+    let rawReport: any = null;
+    try {
+      const response = await fetch(`${pythonServiceUrl}/api/v1/analyze`, {
+        method: "POST",
+        headers,
+        body: formData,
+        signal: controller.signal,
+      });
+
+      if (response.ok) {
+        rawReport = await response.json();
+      } else {
+        const errorText = await response.text().catch(() => "");
+        console.warn(`[QC_SERVICE_HTTP_WARN] HTTP ${response.status}: ${errorText.slice(0, 100)}, falling back to in-process deterministic engine...`);
+      }
+    } catch (httpErr: any) {
+      console.warn(`[QC_SERVICE_FETCH_FALLBACK] Python HTTP service unreachable (${httpErr?.message}), executing deterministic Python QC engine directly...`);
+    }
+
+    // Direct in-process deterministic Python execution fallback (guarantees zero "Fetch failed" disruptions)
+    if (!rawReport) {
+      const safeName = job.documentName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const tempDocPath = path.join(os.tmpdir(), `qc_doc_${Date.now()}_${safeName}`);
+      await fs.writeFile(tempDocPath, documentBuffer);
+
+      try {
+        const pythonBin = path.join(process.cwd(), "spanqc_core/.venv/bin/python3");
+        const cliScript = path.join(process.cwd(), "spanqc_core/run_deterministic_qc.py");
+
+        const args = [
+          cliScript,
+          "--file", tempDocPath,
+          "--standard", job.standard,
+        ];
+        if (job.expectedNetlistJson) {
+          args.push("--expected-netlist-json", job.expectedNetlistJson);
+        }
+        if (job.specificationIsComplete) {
+          args.push("--specification-complete");
+        }
+        if (job.extractionIsVerified) {
+          args.push("--extraction-verified");
+        }
+
+        const { stdout } = await execFileAsync(pythonBin, args, {
+          maxBuffer: 50 * 1024 * 1024,
+          timeout: ANALYSIS_TIMEOUT_MS,
+          env: {
+            ...process.env,
+            PYTHONPATH: path.join(process.cwd(), "spanqc_core"),
+          },
+        });
+
+        rawReport = JSON.parse(stdout);
+        if (rawReport) {
+          rawReport.sha256_hash = job.documentSha256;
+          rawReport.document_name = job.documentName;
+        }
+      } finally {
+        await fs.unlink(tempDocPath).catch(() => {});
+      }
+    }
 
     clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      let parsedDetail = `HTTP ${response.status}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        parsedDetail = errorJson.detail?.message || errorJson.detail || parsedDetail;
-      } catch {
-        parsedDetail = errorText.slice(0, 200) || parsedDetail;
-      }
-      throw new Error(`Python QC service error (${response.status}): ${parsedDetail}`);
+    if (!rawReport) {
+      throw new Error("Analysis service returned empty or invalid response.");
     }
-
-    const rawReport = await response.json();
 
     // 5. Validate schema and enforce coverage/precedence invariants
     const sanitizedReport = validateAndSanitizeReport(rawReport, job.documentSha256);

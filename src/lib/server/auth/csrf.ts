@@ -46,6 +46,10 @@ export function getTrustedHosts(): Set<string> {
     hosts.add("127.0.0.1:3000");
     hosts.add("localhost:3001");
     hosts.add("127.0.0.1:3001");
+    hosts.add("localhost:3002");
+    hosts.add("127.0.0.1:3002");
+    hosts.add("localhost:3005");
+    hosts.add("127.0.0.1:3005");
   }
 
   return hosts;

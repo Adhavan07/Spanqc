@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from conftest import FIX, FakeClient, reply, wire
@@ -137,3 +138,48 @@ def test_prompt_v2_changes_only_rule_8():
     added = [l for l in v2.splitlines() if l not in v1.splitlines()]
     assert any("EXACTLY as printed" in l for l in added) and not any("1." in l[:3] for l in added)
     assert v1.count("## Hard rules") == v2.count("## Hard rules") == 1
+
+
+def test_svg_font_violation_and_previews_flagged_in_api():
+    svg_12_1 = (FIX / "12-1.svg").read_bytes()
+    app = create_app(lambda: FakeClient([reply([wire()])]))
+    r = TestClient(app).post("/api/v1/analyze", files={"file": ("12-1.svg", svg_12_1, "image/svg+xml")})
+    assert r.status_code == 200
+    j = r.json()
+    rule_ids = [f["rule_id"] for f in j["rule_findings"]]
+    assert "LMS-11" in rule_ids
+    assert len(j["pages_rendered"]) == 1
+    assert j["pages_rendered"][0].startswith("data:image/jpeg;base64,")
+
+
+def test_svg_malformed_label_flagged_in_api():
+    svg_2_5 = (FIX / "2-5.svg").read_bytes()
+    app = create_app(lambda: FakeClient([reply([wire()])]))
+    r = TestClient(app).post("/api/v1/analyze", files={"file": ("2-5.svg", svg_2_5, "image/svg+xml")})
+    assert r.status_code == 200
+    j = r.json()
+    rule_ids = [f["rule_id"] for f in j["rule_findings"]]
+    assert "LMS-06" in rule_ids
+    assert len(j["pages_rendered"]) == 1
+
+
+def test_svg_unused_fuse_stubs_and_vector_fallback_in_api():
+    svg_1_fb1_6 = Path("/data/projects/LMS/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg")
+    if not svg_1_fb1_6.exists():
+        svg_1_fb1_6 = Path("/data/projects/uiux/test_data/LMS/LMS (2)/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg")
+    data = svg_1_fb1_6.read_bytes()
+    # Test client without vision model (vector fallback)
+    app = create_app(lambda: None)
+    r = TestClient(app).post("/api/v1/analyze", files={"file": ("1 FB1-6.svg", data, "image/svg+xml")})
+    assert r.status_code == 200
+    j = r.json()
+    rule_ids = [f["rule_id"] for f in j["rule_findings"]]
+    assert "LMS-09" in rule_ids
+    # Check that observations were extracted deterministically from vector SVG
+    assert len(j["candidate_observations"]) >= 8
+    # F35 and F36 must be in flagged gaps
+    flagged_whats = [g["what"] for g in j["flagged_gaps"]]
+    assert any("F35" in w for w in flagged_whats)
+    assert any("F36" in w for w in flagged_whats)
+
+

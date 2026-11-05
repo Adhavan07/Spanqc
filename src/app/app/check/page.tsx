@@ -29,6 +29,12 @@ import {
   FileSpreadsheet,
   RefreshCw,
   XCircle,
+  Eye,
+  EyeOff,
+  Crosshair,
+  Info,
+  ShieldAlert,
+  Wrench,
 } from "lucide-react";
 import { INITIAL_PROJECTS, SAMPLE_STANDARDS } from "@/lib/data/sample-data";
 import { calculateSHA256, createReportFromUploadedFile, formatBytes } from "@/lib/services/report-store";
@@ -50,8 +56,17 @@ export default function CheckWorkflowPage() {
     pages: number;
     mime: string;
     hash: string;
-    sampleKey?: "wh402" | "mcc" | "tb200";
+    sampleKey?: "vdh19" | "wh402" | "mcc" | "tb200";
   } | null>(null);
+
+  // Real schematic preview & visual framing state
+  const [rasterizedPageUrl, setRasterizedPageUrl] = useState<string | null>(null);
+  const [detectedSegments, setDetectedSegments] = useState<any[]>([]);
+  const [detectedDefects, setDetectedDefects] = useState<any[]>([]);
+  const [showSegments, setShowSegments] = useState(true);
+  const [showDefects, setShowDefects] = useState(true);
+  const [selectedFrame, setSelectedFrame] = useState<{ type: "SEGMENT" | "DEFECT"; data: any } | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const [selectedProject, setSelectedProject] = useState("");
   const [tenantProjects, setTenantProjects] = useState<{ id: string; name: string; customer?: string }[]>([]);
@@ -95,10 +110,52 @@ export default function CheckWorkflowPage() {
     { label: "Generating Structured QC Audit Report", pct: 100 },
   ];
 
+  // Live schematic rasterization & frame extraction from Python core
+  const fetchPreviewFrames = async (file: File | Blob, filename: string, pageNum = 1) => {
+    setIsLoadingPreview(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file, filename);
+      formData.append("page", String(pageNum));
+      formData.append("dpi", "110");
+
+      const res = await fetch("/api/v1/qc/preview", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.image_url) {
+          setRasterizedPageUrl(data.image_url);
+        }
+        if (Array.isArray(data.segments)) {
+          setDetectedSegments(data.segments);
+        }
+        if (Array.isArray(data.defects)) {
+          setDetectedDefects(data.defects);
+        }
+        if (data.total_pages) {
+          setFileData((prev) => (prev ? { ...prev, pages: data.total_pages } : null));
+        }
+      }
+    } catch (err) {
+      console.warn("Schematic frame extraction notice:", err);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
   // Handler for custom file upload with thorough error handling
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     setProcessingError(null);
+    setSelectedFrame(null);
+    setRasterizedPageUrl(null);
+    setDetectedSegments([]);
+    setDetectedDefects([]);
+    setCurrentPage(1);
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -144,7 +201,7 @@ export default function CheckWorkflowPage() {
     // Compute real cryptographic hash
     const hash = await calculateSHA256(file);
 
-    // Create image preview if image
+    // Create immediate image preview if image
     if (isImage) {
       const url = URL.createObjectURL(file);
       setImagePreviewUrl(url);
@@ -161,16 +218,46 @@ export default function CheckWorkflowPage() {
       hash: hash,
     });
     setStep("PREVIEW");
+
+    // Immediately rasterize uploaded drawing and detect visual frames
+    fetchPreviewFrames(file, file.name, 1);
   };
 
   // 1-Click Industrial Preloaded Samples
-  const loadIndustrialSample = (sample: "wh402" | "mcc" | "tb200") => {
+  const loadIndustrialSample = async (sample: "vdh19" | "wh402" | "mcc" | "tb200") => {
     setUploadError(null);
     setProcessingError(null);
+    setSelectedFrame(null);
+    setRasterizedPageUrl(null);
+    setDetectedSegments([]);
+    setDetectedDefects([]);
+    setCurrentPage(1);
     setRawFile(null);
     setImagePreviewUrl(null);
 
-    if (sample === "wh402") {
+    if (sample === "vdh19") {
+      setFileData({
+        name: "20032026074234-Input_VDH19_A_INPUT.pdf",
+        size: "2.89 MB",
+        pages: 3,
+        mime: "application/pdf",
+        hash: "da90d031b07d72ffe0c7548f3a7388ad61d1d14f226640aec3181eaefa0c4592",
+        sampleKey: "vdh19",
+      });
+      setSelectedStandard("SPANQC Tech Pub (Hyundai VDH)");
+      setStep("PREVIEW");
+
+      try {
+        const res = await fetch("/samples/VDH19_Wheel_Loader_Schematic.pdf");
+        if (res.ok) {
+          const blob = await res.blob();
+          setRawFile(new File([blob], "20032026074234-Input_VDH19_A_INPUT.pdf", { type: "application/pdf" }));
+          fetchPreviewFrames(blob, "Input_VDH19_A_INPUT.pdf", 1);
+        }
+      } catch (err) {
+        console.warn("Could not load sample VDH PDF", err);
+      }
+    } else if (sample === "wh402") {
       setFileData({
         name: "WH-402_Avionics_Wiring_Manual_RevC.pdf",
         size: "4.19 MB",
@@ -180,6 +267,8 @@ export default function CheckWorkflowPage() {
         sampleKey: "wh402",
       });
       setSelectedStandard("IPC/WHMA-A-620D");
+      setImagePreviewUrl("/frames/frame_001.webp");
+      setStep("PREVIEW");
     } else if (sample === "mcc") {
       setFileData({
         name: "MCC_VFD_Panel_Schematic_v2.pdf",
@@ -190,6 +279,8 @@ export default function CheckWorkflowPage() {
         sampleKey: "mcc",
       });
       setSelectedStandard("UL 508A");
+      setImagePreviewUrl("/frames/frame_020.webp");
+      setStep("PREVIEW");
     } else {
       setFileData({
         name: "TB200_Relay_Interface_Rev1.pdf",
@@ -200,8 +291,9 @@ export default function CheckWorkflowPage() {
         sampleKey: "tb200",
       });
       setSelectedStandard("IPC/WHMA-A-620D");
+      setImagePreviewUrl("/frames/frame_030.webp");
+      setStep("PREVIEW");
     }
-    setStep("PREVIEW");
   };
 
   // Start Real Processing Pipeline wired to Python QC Service queue
@@ -390,94 +482,6 @@ export default function CheckWorkflowPage() {
               <span>SECURITY: SHA-256 HASHED</span>
             </div>
           </div>
-
-          {/* 1-Click Preloaded Industrial Samples */}
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Or Select a Preloaded Industrial Test Drawing</span>
-              </span>
-              <span className="text-[11px] text-slate-500">1-click instant verification</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Sample 1: WH-402 */}
-              <button
-                onClick={() => loadIndustrialSample("wh402")}
-                className="p-4 rounded-xl bg-[#0c101a] border border-[#1b253b] hover:border-cyan-400/80 text-left transition-all hover:-translate-y-0.5 cursor-pointer shadow-lg shadow-black/30 group"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
-                    AEROSPACE AVIONICS
-                  </span>
-                  <Badge variant="severity" severity="CRITICAL" size="sm" showIcon={false}>
-                    DEFECT TEST
-                  </Badge>
-                </div>
-                <h4 className="text-sm font-bold text-white line-clamp-1 group-hover:text-cyan-300 transition-colors">
-                  WH-402 Avionics Wiring Manual
-                </h4>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                  Boeing 777X harness with missing AWG 18 callout on W102 and unjoined CAN bus crossing.
-                </p>
-                <div className="mt-4 pt-3 border-t border-[#1b253b] flex items-center justify-between text-[11px] font-mono text-slate-500">
-                  <span>8 Pages • PDF</span>
-                  <span className="text-cyan-400 font-semibold group-hover:translate-x-0.5 transition-transform">Load Sample →</span>
-                </div>
-              </button>
-
-              {/* Sample 2: MCC-VFD */}
-              <button
-                onClick={() => loadIndustrialSample("mcc")}
-                className="p-4 rounded-xl bg-[#0c101a] border border-[#1b253b] hover:border-cyan-400/80 text-left transition-all hover:-translate-y-0.5 cursor-pointer shadow-lg shadow-black/30 group"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                    INDUSTRIAL AUTOMATION
-                  </span>
-                  <Badge variant="severity" severity="MAJOR" size="sm" showIcon={false}>
-                    UL 508A TEST
-                  </Badge>
-                </div>
-                <h4 className="text-sm font-bold text-white line-clamp-1 group-hover:text-cyan-300 transition-colors">
-                  MCC-VFD-01 Industrial Panel
-                </h4>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                  Variable frequency drive 480V cabinet with short circuit rating ambiguity.
-                </p>
-                <div className="mt-4 pt-3 border-t border-[#1b253b] flex items-center justify-between text-[11px] font-mono text-slate-500">
-                  <span>4 Pages • PDF</span>
-                  <span className="text-cyan-400 font-semibold group-hover:translate-x-0.5 transition-transform">Load Sample →</span>
-                </div>
-              </button>
-
-              {/* Sample 3: TB-200 */}
-              <button
-                onClick={() => loadIndustrialSample("tb200")}
-                className="p-4 rounded-xl bg-[#0c101a] border border-[#1b253b] hover:border-cyan-400/80 text-left transition-all hover:-translate-y-0.5 cursor-pointer shadow-lg shadow-black/30 group"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    HIGH VOLTAGE EV
-                  </span>
-                  <Badge variant="result" result="PASS" size="sm" showIcon={false}>
-                    CLEAN BASELINE
-                  </Badge>
-                </div>
-                <h4 className="text-sm font-bold text-white line-clamp-1 group-hover:text-cyan-300 transition-colors">
-                  TB-200 Relay Terminal Interface
-                </h4>
-                <p className="text-xs text-slate-400 mt-1 line-clamp-2">
-                  Fully verified clean schematic meeting all 64 IPC/WHMA-A-620 rules.
-                </p>
-                <div className="mt-4 pt-3 border-t border-[#1b253b] flex items-center justify-between text-[11px] font-mono text-slate-500">
-                  <span>2 Pages • PDF</span>
-                  <span className="text-cyan-400 font-semibold group-hover:translate-x-0.5 transition-transform">Load Sample →</span>
-                </div>
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
@@ -486,12 +490,17 @@ export default function CheckWorkflowPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left: Document Viewer Controls & Interactive Blueprint Canvas */}
           <div className="lg:col-span-8 space-y-3">
-            {/* Viewer Top Toolbar */}
-            <div className="p-3 rounded-xl bg-[#0c101a] border border-[#1b253b] flex items-center justify-between text-xs">
+            {/* Viewer Top Toolbar with Layer & Defect Toggles */}
+            <div className="p-3 rounded-xl bg-[#0c101a] border border-[#1b253b] flex flex-wrap items-center justify-between gap-2 text-xs">
+              {/* Page Selector */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
+                  onClick={() => {
+                    const newPage = Math.max(1, currentPage - 1);
+                    setCurrentPage(newPage);
+                    if (rawFile) fetchPreviewFrames(rawFile, fileData.name, newPage);
+                  }}
+                  disabled={currentPage <= 1 || isLoadingPreview}
                   className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -500,11 +509,44 @@ export default function CheckWorkflowPage() {
                   Page {currentPage} of {fileData.pages}
                 </span>
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(fileData.pages, p + 1))}
-                  disabled={currentPage >= fileData.pages}
+                  onClick={() => {
+                    const newPage = Math.min(fileData.pages, currentPage + 1);
+                    setCurrentPage(newPage);
+                    if (rawFile) fetchPreviewFrames(rawFile, fileData.name, newPage);
+                  }}
+                  disabled={currentPage >= fileData.pages || isLoadingPreview}
                   className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
                 >
                   <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Interactive Layer Toggles (Segmentation & Defects) */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowSegments(!showSegments)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 transition-all border ${
+                    showSegments
+                      ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/50"
+                      : "bg-[#111726] text-slate-500 border-[#1b253b] hover:text-slate-300"
+                  }`}
+                  title="Toggle Segmentation Frames (Fusebox, CMCU, Connectors)"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Segments ({detectedSegments.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setShowDefects(!showDefects)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 transition-all border ${
+                    showDefects
+                      ? "bg-rose-500/20 text-rose-300 border-rose-500/50"
+                      : "bg-[#111726] text-slate-500 border-[#1b253b] hover:text-slate-300"
+                  }`}
+                  title="Toggle Defect Frames (Pin Swaps, Missing Wires, Deviations)"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                  <span>Defects ({detectedDefects.length})</span>
                 </button>
               </div>
 
@@ -527,7 +569,7 @@ export default function CheckWorkflowPage() {
                 </button>
                 <button
                   onClick={() => setZoomLevel(100)}
-                  className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white ml-2 cursor-pointer"
+                  className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white cursor-pointer"
                   title="Reset Zoom"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
@@ -535,79 +577,140 @@ export default function CheckWorkflowPage() {
               </div>
             </div>
 
-            {/* Document Canvas Rendering */}
-            <div className="h-[480px] rounded-2xl bg-[#06070a] border border-[#1b253b] relative p-6 font-mono text-xs overflow-auto flex flex-col justify-between bg-schematic-grid-dense">
-              {/* If an actual image was uploaded, render the real uploaded image! */}
-              {imagePreviewUrl ? (
+            {/* Document Canvas Rendering: Authentic Upload + Segment & Defect Overlay Frames */}
+            <div className="h-[520px] rounded-2xl bg-[#06070a] border border-[#1b253b] relative p-4 font-mono text-xs overflow-auto flex flex-col justify-between bg-schematic-grid-dense">
+              <div className="p-2 bg-slate-900/80 border border-slate-800 rounded-lg text-[11px] text-cyan-300 mb-2 w-full flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">CAD SCHEMATIC: {fileData.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">(Page {currentPage})</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {isLoadingPreview && (
+                    <span className="text-cyan-400 flex items-center gap-1.5 animate-pulse text-[10px]">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Rasterizing Vector Sheet...
+                    </span>
+                  )}
+                  <span className="text-emerald-400 font-bold text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                    AUTHENTIC SCHEMATIC
+                  </span>
+                </div>
+              </div>
+
+              {/* Viewport & Interactive Blueprint Canvas */}
+              <div className="flex-1 overflow-auto flex items-center justify-center p-2 relative">
                 <div
-                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: "top left" }}
-                  className="transition-transform duration-150 flex flex-col items-center justify-center min-h-[360px]"
+                  style={{
+                    transform: `scale(${zoomLevel / 100})`,
+                    transformOrigin: "center center",
+                    transition: "transform 0.15s ease-out",
+                  }}
+                  className="relative inline-block max-w-full"
                 >
-                  <div className="p-2 bg-slate-900/80 border border-slate-800 rounded-lg text-[11px] text-cyan-300 mb-3 w-full flex justify-between">
-                    <span>LIVE SCHEMATIC RENDER: {fileData.name}</span>
-                    <span className="text-emerald-400">AUTHENTIC UPLOAD</span>
-                  </div>
+                  {/* REAL UPLOADED DRAWING IMAGE */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={imagePreviewUrl}
+                    src={rasterizedPageUrl || imagePreviewUrl || "/samples/VDH19_Wheel_Loader_Schematic.pdf"}
                     alt={fileData.name}
-                    className="max-h-[320px] object-contain rounded border border-slate-700 shadow-2xl"
+                    className="max-h-[440px] w-auto max-w-full object-contain rounded border border-slate-700 shadow-2xl bg-white select-none block"
                   />
+
+                  {/* OVERLAY LAYER 1: FUNCTIONAL SEGMENTATION FRAMES */}
+                  {showSegments &&
+                    detectedSegments.map((seg) => (
+                      <div
+                        key={seg.id}
+                        style={{
+                          left: `${seg.bbox.left}%`,
+                          top: `${seg.bbox.top}%`,
+                          width: `${seg.bbox.width}%`,
+                          height: `${seg.bbox.height}%`,
+                          borderColor: seg.color,
+                        }}
+                        onClick={() => setSelectedFrame({ type: "SEGMENT", data: seg })}
+                        className="absolute border-2 border-dashed bg-black/10 hover:bg-black/30 transition-all cursor-pointer z-10 group"
+                      >
+                        <span
+                          style={{ backgroundColor: seg.color }}
+                          className="absolute -top-3 left-1 text-[9px] font-bold text-white px-1.5 py-0.5 rounded shadow font-mono uppercase whitespace-nowrap tracking-wide group-hover:scale-105 transition-transform"
+                        >
+                          {seg.name}
+                        </span>
+                      </div>
+                    ))}
+
+                  {/* OVERLAY LAYER 2: DEFECT DETECTION FRAMES */}
+                  {showDefects &&
+                    detectedDefects.map((defect) => (
+                      <div
+                        key={defect.id}
+                        style={{
+                          left: `${defect.bbox.left}%`,
+                          top: `${defect.bbox.top}%`,
+                          width: `${defect.bbox.width}%`,
+                          height: `${defect.bbox.height}%`,
+                        }}
+                        onClick={() => setSelectedFrame({ type: "DEFECT", data: defect })}
+                        className={`absolute border-2 transition-all cursor-pointer z-20 flex flex-col justify-between p-1 animate-pulse ${
+                          defect.severity === "CRITICAL"
+                            ? "border-rose-500 bg-rose-500/25 ring-2 ring-rose-500/70"
+                            : "border-amber-500 bg-amber-500/25 ring-2 ring-amber-500/70"
+                        }`}
+                      >
+                        <span className="text-[9px] font-extrabold text-white px-1.5 py-0.5 rounded shadow font-mono bg-rose-600 flex items-center gap-1 self-start whitespace-nowrap">
+                          ⚠ {defect.title}
+                        </span>
+                        <span className="text-[8px] font-mono font-bold px-1 py-0.5 rounded bg-black/85 text-rose-300 self-end border border-rose-500/40">
+                          {defect.consequence}
+                        </span>
+                      </div>
+                    ))}
                 </div>
-              ) : (
-                <div
-                  style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: "top left" }}
-                  className="space-y-6 min-w-[650px] transition-transform duration-150"
-                >
-                  <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg text-[11px] text-slate-400 flex items-center justify-between">
-                    <span>DRAWING TITLE: {fileData.name}</span>
-                    <span className="text-emerald-400">STATUS: VALIDATED (READY FOR QC)</span>
-                  </div>
+              </div>
 
-                  {/* Vector Netlist Schematic Visualization */}
-                  <div className="p-6 bg-slate-950/80 rounded-xl border border-slate-800 space-y-4">
-                    <div className="text-slate-500 text-[11px]">
-                      SHEET {currentPage} ZONE A-D • HARNESS PINOUT MATRIX
+              {/* Frame Inspector Drawer when a Frame is clicked */}
+              {selectedFrame && (
+                <div className="mt-2 p-3 rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl flex items-start justify-between gap-4 text-xs shrink-0 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white font-mono">
+                        {selectedFrame.type === "DEFECT" ? "DEFECT DETECTED" : "FUNCTIONAL SEGMENT"}
+                      </span>
+                      <span className="text-slate-600">•</span>
+                      <span className="text-cyan-400 font-mono">
+                        {selectedFrame.data.rule || selectedFrame.data.id}
+                      </span>
+                      {selectedFrame.type === "DEFECT" && (
+                        <Badge variant="severity" severity={selectedFrame.data.severity} size="sm" />
+                      )}
                     </div>
-
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-slate-500">J1-PIN 01:</span>
-                        <div className="h-0.5 bg-slate-600 flex-1 relative">
-                          <span className="absolute -top-3 left-10 text-[10px] bg-slate-900 px-1 border border-slate-700 rounded text-slate-300">
-                            W101 20 AWG RED → TB1-P1
-                          </span>
-                        </div>
-                        <span className="text-emerald-400 text-[10px] font-bold">PASS</span>
+                    <p className="text-slate-300 font-medium">
+                      {selectedFrame.data.title || selectedFrame.data.name}
+                    </p>
+                    {selectedFrame.data.details && (
+                      <p className="text-slate-400 text-[11px] leading-relaxed">
+                        {selectedFrame.data.details}
+                      </p>
+                    )}
+                    {selectedFrame.data.observed && (
+                      <div className="flex items-center gap-4 text-[10px] font-mono mt-1 text-slate-400">
+                        <span>OBSERVED: <strong className="text-rose-400">{selectedFrame.data.observed}</strong></span>
+                        <span>STANDARD: <strong className="text-emerald-400">{selectedFrame.data.expected}</strong></span>
                       </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-slate-500">J1-PIN 02:</span>
-                        <div className="h-0.5 bg-blue-500 flex-1 relative">
-                          <span className="absolute -top-3 left-10 text-[10px] bg-slate-900 px-1 border border-slate-700 rounded text-slate-300">
-                            W102 BLU → J1-P2 (Pending Gauge Evaluation)
-                          </span>
-                        </div>
-                        <span className="text-blue-400 text-[10px] font-bold">QUEUED</span>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <span className="w-20 text-slate-500">J1-PIN 03:</span>
-                        <div className="h-0.5 bg-slate-600 flex-1 relative">
-                          <span className="absolute -top-3 left-10 text-[10px] bg-slate-900 px-1 border border-slate-700 rounded text-slate-300">
-                            W103 22 AWG → TB1-P3
-                          </span>
-                        </div>
-                        <span className="text-blue-400 text-[10px] font-bold">QUEUED</span>
-                      </div>
-                    </div>
+                    )}
                   </div>
+                  <button
+                    onClick={() => setSelectedFrame(null)}
+                    className="text-slate-400 hover:text-white text-xs font-mono px-2 py-1 rounded bg-slate-800"
+                  >
+                    Close
+                  </button>
                 </div>
               )}
 
-              <div className="text-[10px] text-slate-500 pt-3 border-t border-slate-900 flex items-center justify-between font-mono">
+              <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-900 flex items-center justify-between font-mono shrink-0">
                 <span>SHA-256: {fileData.hash.slice(0, 24)}...</span>
-                <span>ORIGINAL RESOLUTION: 1200 DPI VECTOR</span>
+                <span>ORIGINAL RESOLUTION: HIGH-DPI CAD VECTOR</span>
               </div>
             </div>
           </div>
