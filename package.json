@@ -6,7 +6,7 @@
     "dev": "next dev -p 3001",
     "dev:core": "cd spanqc_core && python3 -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload",
     "dev:all": "bash -c 'trap \"kill 0\" EXIT; npm run dev:core & npm run dev'",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start -p 3001",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

@@ -1,0 +1,90 @@
+{
+  "nextjs": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/nextjs_icon_dark.svg",
+    "file": "nextjs.svg",
+    "bytes": 1091
+  },
+  "react": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/react_light.svg",
+    "file": "react.svg",
+    "bytes": 6534,
+    "dark_file": "react_dark.svg",
+    "dark_url": "https://svgl.app/library/react_dark.svg"
+  },
+  "tailwind": {
+    "source": "devicon",
+    "url": "https://raw.githubusercontent.com/devicons/devicon/master/icons/tailwindcss/tailwindcss-original.svg",
+    "file": "tailwind.svg",
+    "bytes": 689
+  },
+  "typescript": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/typescript.svg",
+    "file": "typescript.svg",
+    "bytes": 1744
+  },
+  "python": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/python.svg",
+    "file": "python.svg",
+    "bytes": 1126
+  },
+  "fastapi": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/fastapi.svg",
+    "file": "fastapi.svg",
+    "bytes": 280
+  },
+  "docker": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/docker.svg",
+    "file": "docker.svg",
+    "bytes": 1488
+  },
+  "sqlite": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/sqlite.svg",
+    "file": "sqlite.svg",
+    "bytes": 3646
+  },
+  "prisma": {
+    "source": "svgl",
+    "url": "https://svgl.app/library/prisma.svg",
+    "file": "prisma.svg",
+    "bytes": 565,
+    "dark_file": "prisma_dark.svg",
+    "dark_url": "https://svgl.app/library/prisma_dark.svg"
+  },
+  "user": {
+    "source": "lucide",
+    "url": "https://cdn.jsdelivr.net/npm/lucide-static/icons/user.svg",
+    "file": "user.svg",
+    "bytes": 371
+  },
+  "browser": {
+    "source": "lucide",
+    "url": "https://cdn.jsdelivr.net/npm/lucide-static/icons/globe.svg",
+    "file": "browser.svg",
+    "bytes": 404
+  },
+  "schematic": {
+    "source": "lucide",
+    "url": "https://cdn.jsdelivr.net/npm/lucide-static/icons/file-text.svg",
+    "file": "schematic.svg",
+    "bytes": 521
+  },
+  "engine": {
+    "source": "lucide",
+    "url": "https://cdn.jsdelivr.net/npm/lucide-static/icons/cpu.svg",
+    "file": "engine.svg",
+    "bytes": 661
+  },
+  "report": {
+    "source": "lucide",
+    "url": "https://cdn.jsdelivr.net/npm/lucide-static/icons/file-spreadsheet.svg",
+    "file": "report.svg",
+    "bytes": 551
+  }
+}
