@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import { useScrollDirection } from "@/lib/hooks/useScrollDirection";
+import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export function MarketingNav() {
   const pathname = usePathname();
@@ -34,24 +35,9 @@ export function MarketingNav() {
       }`}
     >
       <div className="spaceship-floating-nav rounded-2xl h-16 px-4 sm:px-6 flex items-center justify-between">
-        {/* Brand / Spaceship-Inspired Logo */}
-        <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-400/20 via-blue-600/30 to-purple-600/30 border border-cyan-400/40 flex items-center justify-center text-cyan-300 group-hover:scale-105 group-hover:border-cyan-400 transition-all shadow-lg shadow-cyan-500/10">
-            <Rocket className="w-5 h-5 -rotate-45 text-cyan-400" />
-          </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold tracking-tight text-white font-mono">
-                SPANQC
-              </span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold uppercase tracking-wider">
-                BY SPANDSONS
-              </span>
-            </div>
-            <span className="text-[10px] text-slate-400 font-mono tracking-tight -mt-0.5">
-              AI-Assisted Wiring Diagram QC
-            </span>
-          </div>
+        {/* Brand / Official SpanQC Logo */}
+        <Link href="/" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+          <SpanqcLogo variant="full" size="md" priority />
         </Link>
 
         {/* Desktop Navigation Links */}

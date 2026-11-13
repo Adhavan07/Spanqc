@@ -55,7 +55,11 @@ export const metadata: Metadata = {
     images: ["https://[domain]/frames/frame_001.webp"],
   },
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/spanqc-icon.png", type: "image/png" },
+    ],
+    apple: "/spanqc-icon.png",
   },
   authors: [{ name: "Spandsons Horizon Engineering Pvt. Ltd." }],
   other: {

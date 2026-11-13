@@ -12,6 +12,7 @@ import { SpaceshipFooter } from "@/components/marketing/SpaceshipFooter";
 import { RazorpayCheckoutModal } from "@/components/billing/RazorpayCheckoutModal";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useScrollDirection } from "@/lib/hooks/useScrollDirection";
+import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export default function HomePage() {
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
@@ -78,10 +79,10 @@ export default function HomePage() {
         >
           <Link
             href="/"
-            className="flex items-center gap-2.5 text-[15px] font-semibold text-[#eaf1ff] tracking-tight hover:opacity-85 transition-opacity"
+            className="flex items-center gap-3 hover:opacity-90 transition-opacity"
+            aria-label="SpanQC Home"
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-[#00f0ff] shadow-[0_0_10px_#00f0ff]" />
-            <span>Wiring Diagram QC Assistant</span>
+            <SpanqcLogo variant="full" size="md" priority />
           </Link>
 
           <div className="flex items-center gap-5 sm:gap-7">

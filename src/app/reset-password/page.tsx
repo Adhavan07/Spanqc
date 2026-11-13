@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
-import { Rocket, Lock, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Lock, CheckCircle2, ShieldCheck } from "lucide-react";
+import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -29,19 +30,8 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen bg-[#06070a] text-slate-100 flex flex-col justify-center items-center p-4 bg-cosmic-mesh">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-3 mb-4 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400/20 via-blue-600/30 to-purple-600/30 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-lg shadow-cyan-500/10 group-hover:scale-105 transition-all">
-              <Rocket className="w-5 h-5 -rotate-45 text-cyan-400" />
-            </div>
-            <div className="flex flex-col text-left">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-extrabold text-white font-mono tracking-tight">SPANQC</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold uppercase">
-                  BY SPANDSONS
-                </span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono tracking-tight">AI-Assisted Wiring Diagram QC</span>
-            </div>
+          <Link href="/" className="inline-flex items-center justify-center mb-5 hover:opacity-90 transition-opacity">
+            <SpanqcLogo variant="full" size="lg" priority />
           </Link>
           <h1 className="text-2xl font-extrabold text-white tracking-tight">Create New Password</h1>
           <p className="text-xs text-slate-400 mt-1">

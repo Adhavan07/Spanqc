@@ -2,7 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
-import { Rocket, ShieldCheck, FileCheck2, Cpu, Box } from "lucide-react";
+import { ShieldCheck, FileCheck2, Cpu, Box } from "lucide-react";
+import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export function MarketingFooter() {
   return (
@@ -10,11 +11,8 @@ export function MarketingFooter() {
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-5 gap-8 mb-12">
         {/* Brand Column */}
         <div className="space-y-4 md:col-span-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
-              <Rocket className="w-4 h-4 -rotate-45" />
-            </div>
-            <span className="text-base font-extrabold text-white font-mono tracking-tight">SPANQC</span>
+          <div className="flex items-center gap-3">
+            <SpanqcLogo variant="full" size="md" />
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold uppercase">
               PLATFORM
             </span>

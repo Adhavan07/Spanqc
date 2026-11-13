@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/context/auth-context";
 import { clsx } from "clsx";
+import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 import {
-  Rocket,
   FolderKanban,
   Box,
   FileSpreadsheet,
@@ -55,9 +55,7 @@ export function AppSidebar() {
       <div>
         <div className="h-16 px-4 border-b border-[#1b253b] flex items-center justify-between">
           <Link href="/app" className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-400/20 via-blue-600/30 to-purple-600/30 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shrink-0">
-              <Rocket className="w-4 h-4 -rotate-45 text-cyan-400" />
-            </div>
+            <SpanqcLogo variant="icon" size="sm" priority />
             {!collapsed && (
               <div className="flex flex-col truncate">
                 <span className="text-sm font-extrabold text-white font-mono tracking-tight">

@@ -10,7 +10,6 @@ import {
   HelpCircle,
   LogOut,
   ChevronDown,
-  Rocket,
   Grid,
 } from "lucide-react";
 import { Button } from "../ui/Button";
