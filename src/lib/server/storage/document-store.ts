@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 export const MAX_DOCUMENT_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -18,8 +19,19 @@ export class StorageNotFoundError extends Error {
 }
 
 function getStorageRoot(): string {
-  const root = process.env.STORAGE_ROOT || path.join(process.cwd(), "storage/private");
-  return path.resolve(root);
+  if (process.env.STORAGE_ROOT) {
+    return path.resolve(process.env.STORAGE_ROOT);
+  }
+  // On Vercel, AWS Lambda, or production serverless, process.cwd() is read-only (/var/task).
+  // os.tmpdir() (/tmp) is the only writable filesystem directory.
+  if (
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NODE_ENV === "production"
+  ) {
+    return path.join(os.tmpdir(), "spanqc_storage");
+  }
+  return path.resolve(path.join(process.cwd(), "storage/private"));
 }
 
 /**
@@ -112,12 +124,26 @@ export async function storeDocument(
   }
 
   const storageKey = buildDocumentStorageKey(tenantId, sha256);
-  const targetPath = resolveSafeTenantPath(tenantId, storageKey);
-  const targetDir = path.dirname(targetPath);
+  let targetPath = resolveSafeTenantPath(tenantId, storageKey);
+  let targetDir = path.dirname(targetPath);
 
   // Ensure directory exists with restricted permissions (0o700)
-  if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  try {
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+    }
+  } catch (dirErr: any) {
+    if (dirErr?.code === "EROFS" || dirErr?.code === "EACCES") {
+      // In serverless / read-only environment, fall back to /tmp
+      const fallbackRoot = path.join(os.tmpdir(), "spanqc_storage");
+      targetPath = path.join(fallbackRoot, storageKey);
+      targetDir = path.dirname(targetPath);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+      }
+    } else {
+      throw dirErr;
+    }
   }
 
   // Refuse to write through symlinks
@@ -139,10 +165,15 @@ export async function storeDocument(
  * Enforces that caller tenant owns the document.
  */
 export async function retrieveDocument(tenantId: string, storageKey: string): Promise<Buffer> {
-  const targetPath = resolveSafeTenantPath(tenantId, storageKey);
+  let targetPath = resolveSafeTenantPath(tenantId, storageKey);
 
   if (!fs.existsSync(targetPath)) {
-    throw new StorageNotFoundError("Document not found in tenant storage.");
+    const fallbackPath = path.join(os.tmpdir(), "spanqc_storage", storageKey);
+    if (fs.existsSync(fallbackPath)) {
+      targetPath = fallbackPath;
+    } else {
+      throw new StorageNotFoundError("Document not found in tenant storage.");
+    }
   }
 
   return await fs.promises.readFile(targetPath);
@@ -152,10 +183,15 @@ export async function retrieveDocument(tenantId: string, storageKey: string): Pr
  * Deletes a document from tenant-isolated storage.
  */
 export async function deleteDocument(tenantId: string, storageKey: string): Promise<boolean> {
-  const targetPath = resolveSafeTenantPath(tenantId, storageKey);
+  let targetPath = resolveSafeTenantPath(tenantId, storageKey);
 
   if (!fs.existsSync(targetPath)) {
-    return false;
+    const fallbackPath = path.join(os.tmpdir(), "spanqc_storage", storageKey);
+    if (fs.existsSync(fallbackPath)) {
+      targetPath = fallbackPath;
+    } else {
+      return false;
+    }
   }
 
   await fs.promises.unlink(targetPath);

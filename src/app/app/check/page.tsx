@@ -146,6 +146,58 @@ export default function CheckWorkflowPage() {
     }
   };
 
+  // Client-side high-DPI vector PDF rasterizer using PDF.js
+  const renderPdfVectorPage = async (file: File | Blob, pageNum = 1) => {
+    setIsLoadingPreview(true);
+    try {
+      if (typeof window === "undefined") return;
+
+      // Dynamically load PDF.js engine if not already present
+      if (!(window as any).pdfjsLib) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "/vendor/pdfjs/pdf.min.js";
+          script.onload = () => {
+            if ((window as any).pdfjsLib) {
+              (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.js";
+            }
+            resolve();
+          };
+          script.onerror = () => reject(new Error("Failed to load PDF vector engine"));
+          document.head.appendChild(script);
+        });
+      } else {
+        (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.min.js";
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const loadingTask = (window as any).pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdfDoc = await loadingTask.promise;
+      const totalPages = pdfDoc.numPages;
+
+      setFileData((prev) => (prev ? { ...prev, pages: totalPages } : null));
+
+      const targetPage = Math.max(1, Math.min(pageNum, totalPages));
+      const page = await pdfDoc.getPage(targetPage);
+      const viewport = page.getViewport({ scale: 1.5 });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL("image/png");
+        setRasterizedPageUrl(dataUrl);
+      }
+    } catch (err) {
+      console.warn("Client-side vector rendering notice:", err);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
   // Handler for custom file upload with thorough error handling
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
@@ -219,7 +271,12 @@ export default function CheckWorkflowPage() {
     });
     setStep("PREVIEW");
 
-    // Immediately rasterize uploaded drawing and detect visual frames
+    // Client-side high-DPI vector PDF rasterization
+    if (isPdf) {
+      renderPdfVectorPage(file, 1);
+    }
+
+    // Immediately request visual frames and segmentation
     fetchPreviewFrames(file, file.name, 1);
   };
 
@@ -251,7 +308,9 @@ export default function CheckWorkflowPage() {
         const res = await fetch("/samples/VDH19_Wheel_Loader_Schematic.pdf");
         if (res.ok) {
           const blob = await res.blob();
-          setRawFile(new File([blob], "20032026074234-Input_VDH19_A_INPUT.pdf", { type: "application/pdf" }));
+          const sampleFile = new File([blob], "20032026074234-Input_VDH19_A_INPUT.pdf", { type: "application/pdf" });
+          setRawFile(sampleFile);
+          renderPdfVectorPage(sampleFile, 1);
           fetchPreviewFrames(blob, "Input_VDH19_A_INPUT.pdf", 1);
         }
       } catch (err) {
@@ -498,7 +557,12 @@ export default function CheckWorkflowPage() {
                   onClick={() => {
                     const newPage = Math.max(1, currentPage - 1);
                     setCurrentPage(newPage);
-                    if (rawFile) fetchPreviewFrames(rawFile, fileData.name, newPage);
+                    if (rawFile) {
+                      if (fileData.mime === "application/pdf" || rawFile.name.toLowerCase().endsWith(".pdf")) {
+                        renderPdfVectorPage(rawFile, newPage);
+                      }
+                      fetchPreviewFrames(rawFile, fileData.name, newPage);
+                    }
                   }}
                   disabled={currentPage <= 1 || isLoadingPreview}
                   className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
@@ -512,7 +576,12 @@ export default function CheckWorkflowPage() {
                   onClick={() => {
                     const newPage = Math.min(fileData.pages, currentPage + 1);
                     setCurrentPage(newPage);
-                    if (rawFile) fetchPreviewFrames(rawFile, fileData.name, newPage);
+                    if (rawFile) {
+                      if (fileData.mime === "application/pdf" || rawFile.name.toLowerCase().endsWith(".pdf")) {
+                        renderPdfVectorPage(rawFile, newPage);
+                      }
+                      fetchPreviewFrames(rawFile, fileData.name, newPage);
+                    }
                   }}
                   disabled={currentPage >= fileData.pages || isLoadingPreview}
                   className="p-1.5 rounded-lg bg-[#111726] border border-[#1b253b] text-slate-300 hover:text-white disabled:opacity-40 cursor-pointer"
@@ -608,12 +677,22 @@ export default function CheckWorkflowPage() {
                   className="relative inline-block max-w-full"
                 >
                   {/* REAL UPLOADED DRAWING IMAGE */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={rasterizedPageUrl || imagePreviewUrl || "/samples/VDH19_Wheel_Loader_Schematic.pdf"}
-                    alt={fileData.name}
-                    className="max-h-[440px] w-auto max-w-full object-contain rounded border border-slate-700 shadow-2xl bg-white select-none block"
-                  />
+                  {rasterizedPageUrl || imagePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={rasterizedPageUrl || imagePreviewUrl || ""}
+                      alt={fileData.name}
+                      className="max-h-[440px] w-auto max-w-full object-contain rounded border border-slate-700 shadow-2xl bg-white select-none block"
+                    />
+                  ) : (
+                    <div className="w-[620px] max-w-full h-[420px] rounded border border-slate-700/80 shadow-2xl bg-slate-950 flex flex-col items-center justify-center p-6 text-center text-slate-400">
+                      <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mb-3" />
+                      <p className="text-sm font-semibold text-slate-200">Rasterizing Vector Schematic...</p>
+                      <p className="text-xs text-slate-500 font-mono mt-1">
+                        High-DPI vector CAD rendering in progress for {fileData.name} (Page {currentPage})
+                      </p>
+                    </div>
+                  )}
 
                   {/* OVERLAY LAYER 1: FUNCTIONAL SEGMENTATION FRAMES */}
                   {showSegments &&

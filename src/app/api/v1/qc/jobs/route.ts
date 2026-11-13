@@ -101,6 +101,11 @@ export async function POST(request: Request) {
         ? (formData.get("scope_description") as string).trim()
         : null;
 
+    const promptVersion =
+      typeof formData.get("promptVersion") === "string"
+        ? (formData.get("promptVersion") as string).trim()
+        : "extract_v2";
+
     // Idempotency key from header or form field
     const idempotencyKey =
       request.headers.get("idempotency-key") ||
@@ -161,7 +166,7 @@ export async function POST(request: Request) {
 
     console.error("[QC_JOB_CREATE_ERROR]", err);
     return NextResponse.json(
-      { detail: "Internal server error occurred while creating QC job." },
+      { detail: err?.message || "Internal server error occurred while creating QC job." },
       { status: 500 }
     );
   }
