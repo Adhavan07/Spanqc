@@ -1,6 +1,26 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono, Barlow_Condensed } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "@/components/providers/QueryProvider";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-sans",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-mono",
+});
+
+const barlowCondensed = Barlow_Condensed({
+  weight: ["600", "700", "800", "900"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-heading",
+});
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -51,13 +71,13 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="dark notranslate"
+      className={`${inter.variable} ${jetbrainsMono.variable} ${barlowCondensed.variable} dark notranslate`}
       translate="no"
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
       <body
-        className="min-h-screen bg-[#070c18] text-slate-100 antialiased selection:bg-blue-600/30 selection:text-blue-200 notranslate"
+        className="min-h-screen bg-[#070c18] font-sans text-slate-100 antialiased selection:bg-blue-600/30 selection:text-blue-200 notranslate"
         translate="no"
         suppressHydrationWarning
       >
