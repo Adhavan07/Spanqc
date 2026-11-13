@@ -19,14 +19,20 @@ import {
   Command,
 } from "lucide-react";
 import { clsx } from "clsx";
+import { useScrollDirection } from "@/lib/hooks/useScrollDirection";
 
 export function MarketingNav() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [productsOpen, setProductsOpen] = useState(false);
+  const isNavVisible = useScrollDirection({ threshold: 8, topOffset: 60 });
 
   return (
-    <header className="sticky top-4 z-50 w-full px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <header
+      className={`sticky top-4 z-50 w-full px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto transition-transform duration-300 ease-in-out ${
+        isNavVisible ? "translate-y-0" : "-translate-y-28 pointer-events-none"
+      }`}
+    >
       <div className="spaceship-floating-nav rounded-2xl h-16 px-4 sm:px-6 flex items-center justify-between">
         {/* Brand / Spaceship-Inspired Logo */}
         <Link href="/" className="flex items-center gap-3 group">

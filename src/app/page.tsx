@@ -11,10 +11,12 @@ import { BillingCardsSection } from "@/components/marketing/BillingCardsSection"
 import { SpaceshipFooter } from "@/components/marketing/SpaceshipFooter";
 import { RazorpayCheckoutModal } from "@/components/billing/RazorpayCheckoutModal";
 import { ArrowRight, Sparkles } from "lucide-react";
+import { useScrollDirection } from "@/lib/hooks/useScrollDirection";
 
 export default function HomePage() {
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const isNavVisible = useScrollDirection({ threshold: 8, topOffset: 50 });
 
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -65,7 +67,11 @@ export default function HomePage() {
         <ScrollHeroCanvas />
 
       {/* Header Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-30 px-[clamp(24px,6vw,96px)] py-5 bg-gradient-to-b from-[#050a17]/75 via-[#050a17]/50 to-transparent pointer-events-none">
+      <header
+        className={`fixed top-0 left-0 right-0 z-30 px-[clamp(24px,6vw,96px)] py-5 bg-gradient-to-b from-[#050a17]/85 via-[#050a17]/50 to-transparent transition-transform duration-300 ease-in-out pointer-events-none ${
+          isNavVisible ? "translate-y-0" : "-translate-y-full"
+        }`}
+      >
         <nav
           className="flex items-center justify-between w-full max-w-[1400px] mx-auto pointer-events-auto"
           aria-label="Main Navigation"
