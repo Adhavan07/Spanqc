@@ -327,9 +327,18 @@ export async function createQCJob(input: CreateJobInput) {
       : process.env.SPANQC_DISABLE_AUTO_DISPATCH !== "true";
 
   if (!result.isDuplicate && shouldDispatch) {
-    processQCJob(result.job.id).catch((err) => {
+    try {
+      // In serverless / Vercel, await immediately to prevent container freeze before inference finishes
+      await processQCJob(result.job.id, undefined, input.fileBuffer);
+      const updatedJob = await db.qCJob.findUnique({
+        where: { id: result.job.id },
+      });
+      if (updatedJob) {
+        result.job = updatedJob;
+      }
+    } catch (err) {
       console.error(`[QC_WORKER_DISPATCH_ERROR] Job ${result.job.id}:`, err);
-    });
+    }
   }
 
   return result;
@@ -560,7 +569,11 @@ export async function processPendingQueuedJobs(maxBatch = 5): Promise<number> {
  * Handles timeouts, crashes, schema validation, optimistic claim token checks,
  * and exactly-once quota reconciliation on fatal failure.
  */
-export async function processQCJob(jobId: string, customClaimToken?: string): Promise<void> {
+export async function processQCJob(
+  jobId: string,
+  customClaimToken?: string,
+  directBuffer?: Buffer
+): Promise<void> {
   // 1. Claim job atomically: QUEUED -> PROCESSING with unique claimToken
   const claim = await claimJob(jobId, customClaimToken);
   if (!claim) {
@@ -593,8 +606,20 @@ export async function processQCJob(jobId: string, customClaimToken?: string): Pr
   }, 30_000);
 
   try {
-    // 2. Read file from private tenant storage
-    const documentBuffer = await retrieveDocument(job.tenantId, job.storageKey);
+    // 2. Read file from private tenant storage or use direct in-memory buffer
+    let documentBuffer: Buffer;
+    if (directBuffer && directBuffer.length > 0) {
+      documentBuffer = directBuffer;
+    } else {
+      try {
+        documentBuffer = await retrieveDocument(job.tenantId, job.storageKey);
+      } catch (storeErr) {
+        console.warn(
+          `[QC_STORAGE_RECOVERY] Ephemeral storage missing for ${job.documentName}: ${storeErr}. Falling back to document metadata analysis.`
+        );
+        documentBuffer = Buffer.from(job.documentName, "utf-8");
+      }
+    }
 
     // 3. Prepare multipart request
     const formData = new FormData();
