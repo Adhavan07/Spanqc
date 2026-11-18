@@ -35,7 +35,12 @@ import {
   Info,
   ShieldAlert,
   Wrench,
+  FolderArchive,
+  Split,
+  ArrowRightLeft,
+  Files,
 } from "lucide-react";
+import JSZip from "jszip";
 import { INITIAL_PROJECTS, SAMPLE_STANDARDS } from "@/lib/data/sample-data";
 import { calculateSHA256, createReportFromUploadedFile, formatBytes } from "@/lib/services/report-store";
 
@@ -49,7 +54,7 @@ export default function CheckWorkflowPage() {
   const [rawFile, setRawFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
 
-  // Selected file metadata state
+  // Selected file metadata state (OEM Master)
   const [fileData, setFileData] = useState<{
     name: string;
     size: string;
@@ -58,6 +63,18 @@ export default function CheckWorkflowPage() {
     hash: string;
     sampleKey?: "vdh19" | "wh402" | "mcc" | "tb200";
   } | null>(null);
+
+  // Redrawn Tech Pub Output delivery package (ZIP of SVGs/JPGs, or individual SVG/JPG)
+  const [outputFile, setOutputFile] = useState<File | null>(null);
+  const [outputFileData, setOutputFileData] = useState<{
+    name: string;
+    size: string;
+    mime: string;
+    hash: string;
+    sheetCount?: number;
+    detectedSheets?: string[];
+  } | null>(null);
+  const [isUnzipping, setIsUnzipping] = useState(false);
 
   // Real schematic preview & visual framing state
   const [rasterizedPageUrl, setRasterizedPageUrl] = useState<string | null>(null);
@@ -198,8 +215,8 @@ export default function CheckWorkflowPage() {
     }
   };
 
-  // Handler for custom file upload with thorough error handling
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handler for Zone 1: OEM Master Reference Input (PDF)
+  const handleOemFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setUploadError(null);
     setProcessingError(null);
     setSelectedFrame(null);
@@ -211,49 +228,30 @@ export default function CheckWorkflowPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 1. Check file size (100MB limit)
     const MAX_SIZE_BYTES = 100 * 1024 * 1024;
     if (file.size > MAX_SIZE_BYTES) {
       setUploadError(
-        `Oversized File: "${file.name}" is ${formatBytes(file.size)}, which exceeds the 100MB maximum upload limit. Please provide an optimized schematic.`
+        `Oversized File: "${file.name}" is ${formatBytes(file.size)}, which exceeds the 100MB limit.`
       );
       return;
     }
-
-    // 2. Check empty file (0 bytes)
     if (file.size === 0) {
-      setUploadError(`Invalid File: "${file.name}" is empty (0 bytes). Please check your file export.`);
+      setUploadError(`Invalid File: "${file.name}" is empty (0 bytes).`);
       return;
     }
 
-    // 3. Check MIME type / extension
     const lowerName = file.name.toLowerCase();
     const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
-    const isZip =
-      file.type === "application/zip" ||
-      file.type === "application/x-zip-compressed" ||
-      lowerName.endsWith(".zip");
-    const isSvg =
-      file.type === "image/svg+xml" ||
-      lowerName.endsWith(".svg");
-    const isImage =
-      file.type.startsWith("image/") ||
-      lowerName.endsWith(".png") ||
-      lowerName.endsWith(".jpg") ||
-      lowerName.endsWith(".jpeg") ||
-      isSvg;
+    const isImage = file.type.startsWith("image/") || lowerName.endsWith(".png") || lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg");
 
-    if (!isPdf && !isImage && !isZip) {
+    if (!isPdf && !isImage) {
       setUploadError(
-        `Unsupported File Format: "${file.name}". SpanQC accepts wiring schematics in ZIP, PDF, PNG, JPG, JPEG, or SVG format.`
+        `OEM Reference schematic must be a PDF document or CAD drawing (received: "${file.name}").`
       );
       return;
     }
 
-    // Compute real cryptographic hash
     const hash = await calculateSHA256(file);
-
-    // Create immediate image preview if image
     if (isImage) {
       const url = URL.createObjectURL(file);
       setImagePreviewUrl(url);
@@ -265,19 +263,106 @@ export default function CheckWorkflowPage() {
     setFileData({
       name: file.name,
       size: formatBytes(file.size),
-      pages: isImage ? 1 : isZip ? 1 : Math.max(1, Math.min(16, Math.round(file.size / (200 * 1024)))),
-      mime: file.type || (isPdf ? "application/pdf" : isZip ? "application/zip" : isSvg ? "image/svg+xml" : "image/png"),
+      pages: isImage ? 1 : Math.max(1, Math.min(16, Math.round(file.size / (200 * 1024)))),
+      mime: file.type || (isPdf ? "application/pdf" : "image/png"),
       hash: hash,
     });
-    setStep("PREVIEW");
 
-    // Client-side high-DPI vector PDF rasterization
     if (isPdf) {
       renderPdfVectorPage(file, 1);
     }
-
-    // Immediately request visual frames and segmentation
     fetchPreviewFrames(file, file.name, 1);
+  };
+
+  // Handler for Zone 2: Tech Pub Redrawn Output (ZIP archive of SVGs/JPGs, or individual SVG/JPG)
+  const handleOutputFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUploadError(null);
+    setProcessingError(null);
+
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const MAX_SIZE_BYTES = 100 * 1024 * 1024;
+    if (file.size > MAX_SIZE_BYTES) {
+      setUploadError(
+        `Oversized File: "${file.name}" is ${formatBytes(file.size)}, which exceeds the 100MB limit.`
+      );
+      return;
+    }
+    if (file.size === 0) {
+      setUploadError(`Invalid File: "${file.name}" is empty (0 bytes).`);
+      return;
+    }
+
+    const lowerName = file.name.toLowerCase();
+    const isZip =
+      file.type === "application/zip" ||
+      file.type === "application/x-zip-compressed" ||
+      lowerName.endsWith(".zip");
+    const isSvg = file.type === "image/svg+xml" || lowerName.endsWith(".svg");
+    const isImage =
+      file.type.startsWith("image/") ||
+      lowerName.endsWith(".png") ||
+      lowerName.endsWith(".jpg") ||
+      lowerName.endsWith(".jpeg") ||
+      isSvg;
+
+    if (!isZip && !isImage) {
+      setUploadError(
+        `Tech Pub delivery package must be a ZIP bundle or SVG/JPG drawings (received: "${file.name}").`
+      );
+      return;
+    }
+
+    setIsUnzipping(true);
+    try {
+      const hash = await calculateSHA256(file);
+      let sheetCount = 1;
+      let detectedSheets: string[] = [];
+
+      if (isZip) {
+        const zip = await JSZip.loadAsync(file);
+        const entries = Object.keys(zip.files).filter(
+          (n) =>
+            !n.startsWith("__MACOSX") &&
+            !n.startsWith(".") &&
+            !zip.files[n].dir &&
+            /\.(svg|jpg|jpeg|png|pdf)$/i.test(n)
+        );
+        sheetCount = Math.max(1, entries.length);
+        detectedSheets = entries;
+      } else {
+        detectedSheets = [file.name];
+      }
+
+      setOutputFile(file);
+      setOutputFileData({
+        name: file.name,
+        size: formatBytes(file.size),
+        mime: file.type || (isZip ? "application/zip" : isSvg ? "image/svg+xml" : "image/jpeg"),
+        hash: hash,
+        sheetCount,
+        detectedSheets,
+      });
+    } catch (err: any) {
+      setUploadError(
+        `Failed to unpack delivery ZIP archive: ${err?.message || "Corrupted archive file."}`
+      );
+    } finally {
+      setIsUnzipping(false);
+    }
+  };
+
+  // General legacy handler fallback
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".zip") || name.endsWith(".svg")) {
+      handleOutputFileUpload(e);
+    } else {
+      handleOemFileUpload(e);
+    }
   };
 
   // 1-Click Industrial Preloaded Samples
@@ -300,6 +385,14 @@ export default function CheckWorkflowPage() {
         mime: "application/pdf",
         hash: "da90d031b07d72ffe0c7548f3a7388ad61d1d14f226640aec3181eaefa0c4592",
         sampleKey: "vdh19",
+      });
+      setOutputFileData({
+        name: "VDH19_Output_Sheets_Batch.zip",
+        size: "1.42 MB",
+        mime: "application/zip",
+        hash: "74b62d8544e3f01c9a8b7e6f5d4c3b2a1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b",
+        sheetCount: 3,
+        detectedSheets: ["1 FB1-6.svg", "2 CMCU 1-3.svg", "3 CMCU 4-7.svg"],
       });
       setSelectedStandard("SPANQC Tech Pub (Hyundai VDH)");
       setStep("PREVIEW");
@@ -390,6 +483,9 @@ export default function CheckWorkflowPage() {
 
       const formData = new FormData();
       formData.append("file", fileToUpload, fileData?.name || "schematic.pdf");
+      if (outputFile) {
+        formData.append("outputFile", outputFile, outputFileData?.name || "delivery_output_package.zip");
+      }
       formData.append("projectId", activeProjectId);
       formData.append("standard", selectedStandard);
       if (expectedNetlistJson.trim()) {
@@ -513,32 +609,237 @@ export default function CheckWorkflowPage() {
         </div>
       )}
 
-      {/* STEP 1: UPLOAD EXPERIENCE */}
+      {/* STEP 1: DUAL UPLOAD EXPERIENCE */}
       {step === "UPLOAD" && (
-        <div className="space-y-8 max-w-4xl mx-auto">
-          {/* Drag & Drop Upload Zone */}
-          <div className="p-10 rounded-2xl border-2 border-dashed border-[#222e47] hover:border-cyan-400 bg-[#0c101a] transition-all text-center relative group shadow-2xl shadow-black/40 hover:shadow-cyan-500/5">
-            <input
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.svg,.zip"
-              onChange={handleFileUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-            />
-            <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mx-auto mb-4 group-hover:scale-105 group-hover:border-cyan-400 transition-all">
-              <FileUp className="w-8 h-8" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-1">
-              Upload a wiring diagram manual
-            </h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto mb-4">
-              Drag and drop your engineering schematic document or ZIP package here, or click to browse files.
+        <div className="space-y-8 max-w-5xl mx-auto">
+          {/* Header instructions */}
+          <div className="text-center max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold text-white tracking-tight">
+              Dual Comparative Schematic Verification
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Upload the original OEM master drawing (PDF) and the redrawn Tech Pub output (ZIP package of SVGs/JPGs). SpanQC unzips the delivery, verifies conductor continuity, and determines if each wire will work or not.
             </p>
-            <div className="inline-flex items-center gap-4 text-[11px] font-mono text-slate-400 bg-[#111726] px-4 py-2 rounded-xl border border-[#1b253b]">
-              <span>SUPPORTED: ZIP, PDF, PNG, JPG, SVG</span>
-              <span>•</span>
-              <span>MAX SIZE: 100MB</span>
-              <span>•</span>
-              <span>SECURITY: SHA-256 HASHED</span>
+          </div>
+
+          {/* 2-Zone Upload Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* ZONE 1: OEM MASTER INPUT PDF */}
+            <div className={`p-6 rounded-2xl border-2 border-dashed transition-all relative flex flex-col justify-between ${
+              rawFile || fileData
+                ? "border-cyan-500/60 bg-cyan-950/15 shadow-xl shadow-cyan-950/30"
+                : "border-[#222e47] hover:border-cyan-400/70 bg-[#0c101a] hover:bg-[#0f1422]"
+            }`}>
+              {!fileData && (
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={handleOemFileUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+              )}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-3 h-3 text-cyan-400" />
+                    ZONE 1 • OEM INPUT (GROUND TRUTH)
+                  </span>
+                  {fileData && (
+                    <span className="text-[10px] font-mono text-emerald-400 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      LOADED
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-center my-6">
+                  <div className={`w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center transition-transform ${
+                    fileData
+                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/50"
+                      : "bg-[#111726] text-slate-400 border border-[#1b253b] group-hover:scale-105"
+                  }`}>
+                    <FileText className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-base font-bold text-white mb-1">
+                    {fileData ? fileData.name : "OEM Master Reference Schematic"}
+                  </h3>
+                  <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                    {fileData
+                      ? `${fileData.size} • ${fileData.pages} Page(s) • SHA-256: ${fileData.hash.slice(0, 16)}...`
+                      : "Drag & drop original manufacturer PDF schematic (e.g. INPUT.pdf)"}
+                  </p>
+                </div>
+              </div>
+
+              {fileData ? (
+                <div className="pt-4 border-t border-cyan-500/30 flex items-center justify-between z-20">
+                  <span className="text-[11px] font-mono text-cyan-300">
+                    PDF Ready for Netlist Extraction
+                  </span>
+                  <button
+                    onClick={() => {
+                      setRawFile(null);
+                      setFileData(null);
+                      setImagePreviewUrl(null);
+                      setRasterizedPageUrl(null);
+                    }}
+                    className="text-xs text-rose-400 hover:text-rose-300 underline font-mono cursor-pointer"
+                  >
+                    Replace / Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-3 border-t border-[#1b253b] text-center text-[11px] font-mono text-slate-500">
+                  ACCEPTED: .PDF FORMAT • MAX 100MB
+                </div>
+              )}
+            </div>
+
+            {/* ZONE 2: REDRAWN TECH PUB DELIVERY PACKAGE (ZIP / SVG / JPG) */}
+            <div className={`p-6 rounded-2xl border-2 border-dashed transition-all relative flex flex-col justify-between ${
+              outputFile || outputFileData
+                ? "border-purple-500/60 bg-purple-950/15 shadow-xl shadow-purple-950/30"
+                : "border-[#222e47] hover:border-purple-400/70 bg-[#0c101a] hover:bg-[#0f1422]"
+            }`}>
+              {!outputFileData && (
+                <input
+                  type="file"
+                  accept=".zip,.svg,.jpg,.jpeg,.png,application/zip"
+                  onChange={handleOutputFileUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+              )}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase tracking-wider flex items-center gap-1.5">
+                    <FolderArchive className="w-3 h-3 text-purple-400" />
+                    ZONE 2 • TECH PUB OUTPUT (DELIVERY)
+                  </span>
+                  {outputFileData && (
+                    <span className="text-[10px] font-mono text-purple-400 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />
+                      UNPACKED
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-center my-6">
+                  <div className={`w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center transition-transform ${
+                    outputFileData
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-400/50"
+                      : "bg-[#111726] text-slate-400 border border-[#1b253b] group-hover:scale-105"
+                  }`}>
+                    {isUnzipping ? (
+                      <RefreshCw className="w-7 h-7 text-purple-400 animate-spin" />
+                    ) : (
+                      <FolderArchive className="w-7 h-7" />
+                    )}
+                  </div>
+                  <h3 className="text-base font-bold text-white mb-1">
+                    {outputFileData ? outputFileData.name : "Redrawn Output Package (ZIP / SVG / JPG)"}
+                  </h3>
+                  <p className="text-xs text-slate-400 max-w-xs mx-auto">
+                    {outputFileData
+                      ? `${outputFileData.size} • ${outputFileData.sheetCount || 1} sheet(s) detected • SHA-256: ${outputFileData.hash.slice(0, 16)}...`
+                      : "Upload batch ZIP of SVGs/JPGs or individual redrawn tech pub sheets"}
+                  </p>
+                  {outputFileData?.detectedSheets && outputFileData.detectedSheets.length > 0 && (
+                    <div className="mt-2 flex flex-wrap justify-center gap-1">
+                      {outputFileData.detectedSheets.slice(0, 4).map((s, i) => (
+                        <span key={i} className="text-[9px] font-mono px-2 py-0.5 rounded bg-purple-900/40 text-purple-200 border border-purple-500/30">
+                          {s}
+                        </span>
+                      ))}
+                      {outputFileData.detectedSheets.length > 4 && (
+                        <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-purple-900/40 text-purple-300">
+                          +{outputFileData.detectedSheets.length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {outputFileData ? (
+                <div className="pt-4 border-t border-purple-500/30 flex items-center justify-between z-20">
+                  <span className="text-[11px] font-mono text-purple-300">
+                    Delivery Package Ready for Comparison
+                  </span>
+                  <button
+                    onClick={() => {
+                      setOutputFile(null);
+                      setOutputFileData(null);
+                    }}
+                    className="text-xs text-rose-400 hover:text-rose-300 underline font-mono cursor-pointer"
+                  >
+                    Replace / Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-3 border-t border-[#1b253b] text-center text-[11px] font-mono text-slate-500">
+                  ACCEPTED: .ZIP (BATCH SVGS/JPGS), .SVG, .JPG, .PNG
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Launch & Action Bar */}
+          <div className="p-6 rounded-2xl bg-[#0c101a] border border-[#1b253b] flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shrink-0">
+                <Split className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">
+                  {fileData && outputFileData
+                    ? "✨ Dual Comparative Viability Engine Active"
+                    : fileData
+                    ? "📄 OEM Reference Schematic Loaded"
+                    : outputFileData
+                    ? "📦 Delivery Package Loaded"
+                    : "Awaiting Schematic Documents"}
+                </h4>
+                <p className="text-xs text-slate-400">
+                  {fileData && outputFileData
+                    ? "SpanQC will unzip the output package, cross-compare conductor netlist pinouts, and verify whether each circuit WILL WORK or WILL NOT WORK."
+                    : "Upload both documents for full comparative pinout checking, or proceed with a single document."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <Button
+                onClick={() => loadIndustrialSample("vdh19")}
+                variant="secondary"
+                size="md"
+                leftIcon={<Sparkles className="w-4 h-4 text-cyan-400" />}
+                className="w-full sm:w-auto cursor-pointer"
+              >
+                Load Hyundai VDH-19 Sample (PDF + ZIP)
+              </Button>
+
+              <Button
+                onClick={() => {
+                  if (!fileData && outputFileData) {
+                    setRawFile(outputFile);
+                    setFileData({
+                      name: outputFileData.name,
+                      size: outputFileData.size,
+                      pages: outputFileData.sheetCount || 1,
+                      mime: outputFileData.mime,
+                      hash: outputFileData.hash,
+                    });
+                  }
+                  setStep("PREVIEW");
+                }}
+                disabled={!fileData && !outputFileData}
+                variant="primary"
+                size="md"
+                rightIcon={<ArrowRight className="w-4 h-4" />}
+                className="w-full sm:w-auto cursor-pointer"
+              >
+                Proceed to Preview & Rules →
+              </Button>
             </div>
           </div>
         </div>
@@ -549,6 +850,34 @@ export default function CheckWorkflowPage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left: Document Viewer Controls & Interactive Blueprint Canvas */}
           <div className="lg:col-span-8 space-y-3">
+            {/* Dual Document Comparison Banner */}
+            {outputFileData && (
+              <div className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-lg shadow-purple-950/20">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 shrink-0">
+                    <FolderArchive className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white">Dual Comparative Audit Active</span>
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                        {outputFileData.sheetCount || 1} Sheets Unpacked
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-purple-200 mt-0.5">
+                      Comparing Master [<strong>{fileData.name}</strong>] against Output Delivery [<strong>{outputFileData.name}</strong>]. Conductor continuity and circuit viability will be evaluated deterministically.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStep("UPLOAD")}
+                  className="text-[11px] font-mono text-purple-300 hover:text-white underline shrink-0 cursor-pointer"
+                >
+                  Change Files
+                </button>
+              </div>
+            )}
+
             {/* Viewer Top Toolbar with Layer & Defect Toggles */}
             <div className="p-3 rounded-xl bg-[#0c101a] border border-[#1b253b] flex flex-wrap items-center justify-between gap-2 text-xs">
               {/* Page Selector */}

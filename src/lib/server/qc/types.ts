@@ -9,6 +9,15 @@ export interface EvidenceCoordinates {
   xmax: number;
 }
 
+export interface CircuitViabilityImpact {
+  status: string; // "WILL NOT WORK (CRITICAL FAILURE)" | "DEFECTIVE DOCUMENTATION (OPERATIONAL RISK)" | "OPERATIVE / CONFORMING"
+  will_work: boolean;
+  circuit_consequence: string;
+  safety_hazard: string;
+  remediation_required: string;
+  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+}
+
 export interface RuleFinding {
   finding_id: string;
   rule_id: string;
@@ -26,6 +35,7 @@ export interface RuleFinding {
   human_review_required: boolean;
   human_decision?: string | null;
   human_comment?: string | null;
+  circuit_impact?: CircuitViabilityImpact | null;
 }
 
 export interface CandidateObservation {
@@ -39,6 +49,9 @@ export interface CandidateObservation {
   confidence?: number;
   coordinates?: EvidenceCoordinates | null;
   is_ambiguous?: boolean;
+  will_work?: boolean;
+  circuit_status?: string;
+  circuit_notes?: string;
 }
 
 export interface QCReport {
@@ -68,6 +81,14 @@ export interface QCReport {
   precision_guarantee?: string;
   zero_false_positive_enforced?: boolean;
   verified_evidence_count?: number;
+  comparison_mode?: boolean;
+  oem_master_document?: string;
+  output_delivery_package?: string;
+  output_sheets_count?: number;
+  will_work_count?: number;
+  will_not_work_count?: number;
+  documentation_error_count?: number;
+  circuit_impacts?: CircuitViabilityImpact[];
 }
 
 export interface QCJobCreationResponse {

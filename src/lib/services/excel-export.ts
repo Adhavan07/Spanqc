@@ -634,9 +634,12 @@ export async function exportProfessionalQCWorkbook(
       dest: obs.destination_terminal || obs.destination || "-",
       gridRef: "-",
       crossSheet: "-",
-      classif: obs.destination_class || (obs.is_ambiguous ? "Grey" : "Green"),
+      classif:
+        obs.will_work === false
+          ? "Flag"
+          : obs.destination_class || (obs.is_ambiguous ? "Grey" : "Green"),
       conf: (obs.confidence || 0.95) >= 0.9 ? "High" : "Medium",
-      notes: obs.evidence_text || obs.evidence || `Observation verified with ${(obs.confidence ? obs.confidence * 100 : 95).toFixed(0)}% confidence.`,
+      notes: `${obs.circuit_status ? `[${obs.circuit_status}] ` : obs.will_work === false ? "[WILL NOT WORK (CRITICAL FAILURE)] " : obs.will_work === true ? "[WILL WORK (OPERATIVE)] " : ""}${obs.circuit_notes ? obs.circuit_notes + " — " : ""}${obs.evidence_text || obs.evidence || `Observation verified with ${(obs.confidence ? obs.confidence * 100 : 95).toFixed(0)}% confidence.`}`,
     }));
   } else {
     // Build from findings
@@ -906,8 +909,10 @@ export async function exportProfessionalQCWorkbook(
     ? CA30_GOLDEN_QA_FLAGS
     : (report.findings || []).map((f, idx) => ({
         id: idx + 1,
-        flag: `[${f.code}] ${f.title}: ${f.description} (Detected: '${f.detected_value}', Expected: '${f.expected_value}').`,
-        action: f.recommended_remediation || "Engineering review and drawing redline revision required.",
+        flag: `[${f.code}] ${f.title}: ${f.circuit_impact ? `[${f.circuit_impact.status}] — Consequence: ${f.circuit_impact.circuit_consequence}. ` : ""}${f.description} (Detected: '${f.detected_value}', Expected: '${f.expected_value}').`,
+        action: f.circuit_impact
+          ? `[HAZARD: ${f.circuit_impact.safety_hazard}] Remediation: ${f.circuit_impact.remediation_required || f.recommended_remediation || "Redline revision required."}`
+          : f.recommended_remediation || "Engineering review and drawing redline revision required.",
       }));
 
   let curRowQA = 5;

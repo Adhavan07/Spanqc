@@ -170,6 +170,14 @@ export interface QCFinding {
   reviewer_comment?: string | null;
   reviewed_at?: string | null;
   recommended_remediation?: string;
+  circuit_impact?: {
+    status: string;
+    will_work: boolean;
+    circuit_consequence: string;
+    safety_hazard: string;
+    remediation_required: string;
+    severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
+  } | null;
   is_ai_interpretation: boolean;
   created_at: string;
 }

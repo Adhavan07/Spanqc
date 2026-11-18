@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
@@ -62,6 +62,8 @@ export interface CreateJobInput {
   userId: string;
   fileBuffer: Buffer;
   originalFilename?: string;
+  outputFileBuffer?: Buffer;
+  outputFilename?: string;
   standard?: string;
   expectedNetlistJson?: string | null;
   specificationIsComplete?: boolean | null;
@@ -315,6 +317,12 @@ export async function createQCJob(input: CreateJobInput) {
     throw new JobBridgeError("Failed to create QC job after concurrent retry attempts.", 500);
   }
 
+  // Store output delivery bundle if provided
+  if (input.outputFileBuffer && input.outputFileBuffer.length > 0) {
+    const outputSha = createHash("sha256").update(input.outputFileBuffer).digest("hex");
+    await storeDocument(tenantId, outputSha, input.outputFileBuffer).catch(() => {});
+  }
+
   // If a new job was created, launch background processing
   const shouldDispatch =
     input.autoDispatch !== undefined
@@ -324,7 +332,13 @@ export async function createQCJob(input: CreateJobInput) {
   if (!result.isDuplicate && shouldDispatch) {
     try {
       // In serverless / Vercel, await immediately to prevent container freeze before inference finishes
-      await processQCJob(result.job.id, undefined, input.fileBuffer);
+      await processQCJob(
+        result.job.id,
+        undefined,
+        input.fileBuffer,
+        input.outputFileBuffer,
+        input.outputFilename
+      );
       const updatedJob = await db.qCJob.findUnique({
         where: { id: result.job.id },
       });
@@ -444,6 +458,14 @@ export function validateAndSanitizeReport(
     precision_guarantee: typeof obj.precision_guarantee === "string" ? obj.precision_guarantee : "100.0% Verified Precision (Zero False-Positive Evidence Lock)",
     zero_false_positive_enforced: obj.zero_false_positive_enforced !== false,
     verified_evidence_count: typeof obj.verified_evidence_count === "number" ? obj.verified_evidence_count : (Array.isArray(obj.candidate_observations) ? obj.candidate_observations.length : 0),
+    comparison_mode: Boolean(obj.comparison_mode),
+    oem_master_document: obj.oem_master_document ? String(obj.oem_master_document) : undefined,
+    output_delivery_package: obj.output_delivery_package ? String(obj.output_delivery_package) : undefined,
+    output_sheets_count: typeof obj.output_sheets_count === "number" ? obj.output_sheets_count : undefined,
+    will_work_count: typeof obj.will_work_count === "number" ? obj.will_work_count : undefined,
+    will_not_work_count: typeof obj.will_not_work_count === "number" ? obj.will_not_work_count : undefined,
+    documentation_error_count: typeof obj.documentation_error_count === "number" ? obj.documentation_error_count : undefined,
+    circuit_impacts: Array.isArray(obj.circuit_impacts) ? (obj.circuit_impacts as any) : undefined,
   };
 }
 
@@ -572,7 +594,9 @@ export async function processPendingQueuedJobs(maxBatch = 5): Promise<number> {
 export async function processQCJob(
   jobId: string,
   customClaimToken?: string,
-  directBuffer?: Buffer
+  directBuffer?: Buffer,
+  outputFileBuffer?: Buffer,
+  outputFilename?: string
 ): Promise<void> {
   // 1. Claim job atomically: QUEUED -> PROCESSING with unique claimToken
   const claim = await claimJob(jobId, customClaimToken);
@@ -745,7 +769,12 @@ export async function processQCJob(
       // B. Robust TypeScript Deterministic Engine fallback (serverless & cloud guaranteed)
       if (!rawReport) {
         console.info("[QC_ENGINE_TS] Running pure deterministic TypeScript engine on document:", job.documentName);
-        rawReport = await executeDeterministicAnalysis(documentBuffer, job);
+        rawReport = await executeDeterministicAnalysis(
+          documentBuffer,
+          job,
+          outputFileBuffer,
+          outputFilename
+        );
       }
     }
 

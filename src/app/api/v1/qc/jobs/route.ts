@@ -117,6 +117,17 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const fileBuffer = Buffer.from(arrayBuffer);
 
+    // Read optional redrawn delivery output package (e.g. ZIP bundle of SVGs/JPGs, or single SVG/JPG)
+    const outputFile = formData.get("outputFile") || formData.get("output_file");
+    let outputFileBuffer: Buffer | undefined;
+    let outputFilename: string | undefined;
+
+    if (outputFile && typeof outputFile !== "string" && outputFile instanceof Blob) {
+      const outputArrayBuffer = await outputFile.arrayBuffer();
+      outputFileBuffer = Buffer.from(outputArrayBuffer);
+      outputFilename = (outputFile as File).name || "delivery_output_package.zip";
+    }
+
     const autoDispatch =
       request.headers.get("x-spanqc-disable-dispatch") === "true"
         ? false
@@ -129,6 +140,8 @@ export async function POST(request: Request) {
       userId,
       fileBuffer,
       originalFilename: (file as File).name || "uploaded_drawing.pdf",
+      outputFileBuffer,
+      outputFilename,
       standard,
       expectedNetlistJson,
       specificationIsComplete,
