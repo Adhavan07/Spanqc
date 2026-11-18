@@ -164,9 +164,14 @@ def test_svg_malformed_label_flagged_in_api():
 
 
 def test_svg_unused_fuse_stubs_and_vector_fallback_in_api():
-    svg_1_fb1_6 = Path("/data/projects/LMS/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg")
-    if not svg_1_fb1_6.exists():
-        svg_1_fb1_6 = Path("/data/projects/uiux/test_data/LMS/LMS (2)/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg")
+    candidates = [
+        Path("/data/projects/LMS/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg"),
+        Path("/data/projects/uiux/test_data/LMS/LMS (2)/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg"),
+        Path(__file__).resolve().parent.parent.parent / "test_data/LMS/LMS (2)/PROJECT INFO (1)/PROJECT INFO/OUTPUT/SVG/1 FB1-6.svg",
+    ]
+    svg_1_fb1_6 = next((p for p in candidates if p.exists()), None)
+    if not svg_1_fb1_6:
+        pytest.skip("Local test data '1 FB1-6.svg' not present on CI runner")
     data = svg_1_fb1_6.read_bytes()
     # Test client without vision model (vector fallback)
     app = create_app(lambda: None)
