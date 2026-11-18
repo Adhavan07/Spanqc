@@ -63,6 +63,11 @@ export interface QCReport {
   failed_page_numbers: number[];
   is_experimental: boolean;
   disclaimer: string;
+  precision_score?: number;
+  precision_mode?: string;
+  precision_guarantee?: string;
+  zero_false_positive_enforced?: boolean;
+  verified_evidence_count?: number;
 }
 
 export interface QCJobCreationResponse {
@@ -96,6 +101,11 @@ export interface QCJobStatusResponse {
   updated_at: string;
   is_experimental: boolean;
   disclaimer: string;
+  precision_score?: number;
+  precision_mode?: string;
+  precision_guarantee?: string;
+  zero_false_positive_enforced?: boolean;
+  verified_evidence_count?: number;
 }
 
 export type ReviewDecision = "ACCEPTED" | "REJECTED" | "NEEDS_CLARIFICATION";
