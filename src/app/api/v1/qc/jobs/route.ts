@@ -128,6 +128,20 @@ export async function POST(request: Request) {
       outputFilename = (outputFile as File).name || "delivery_output_package.zip";
     }
 
+    // Read optional delivery output manifest (lightweight client-extracted text/sheet metadata)
+    const rawManifest = formData.get("output_manifest_json") || formData.get("outputManifestJson");
+    let outputManifest: any = null;
+    if (typeof rawManifest === "string" && rawManifest.trim()) {
+      try {
+        outputManifest = JSON.parse(rawManifest);
+        if (!outputFilename && outputManifest?.outputFilename) {
+          outputFilename = outputManifest.outputFilename;
+        }
+      } catch {
+        outputManifest = null;
+      }
+    }
+
     const autoDispatch =
       request.headers.get("x-spanqc-disable-dispatch") === "true"
         ? false
@@ -142,6 +156,7 @@ export async function POST(request: Request) {
       originalFilename: (file as File).name || "uploaded_drawing.pdf",
       outputFileBuffer,
       outputFilename,
+      outputManifest,
       standard,
       expectedNetlistJson,
       specificationIsComplete,

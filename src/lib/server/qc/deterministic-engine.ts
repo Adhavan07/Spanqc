@@ -239,6 +239,13 @@ function extractWireLabels(lines: string[]): {
   return { wires, anomalies };
 }
 
+export interface OutputDeliveryManifest {
+  outputFilename?: string;
+  sheetCount?: number;
+  sheetNames?: string[];
+  extractedLines?: string[];
+}
+
 /**
  * Pure TypeScript deterministic QC analysis engine with Dual OEM vs Redraw Comparison
  * and Electrical Circuit Viability Assessment ('Will it work or not?').
@@ -256,18 +263,27 @@ export async function executeDeterministicAnalysis(
     scopeDescription?: string | null;
   },
   outputBuffer?: Buffer,
-  outputFilename?: string
+  outputFilename?: string,
+  outputManifest?: OutputDeliveryManifest | null
 ): Promise<QCReport> {
   const oemLines = extractTextLinesFromBuffer(documentBuffer);
   let { wires: oemWires, anomalies: oemAnomalies } = extractWireLabels(oemLines);
 
-  // Parse Redrawn Delivery Output if provided
+  // Parse Redrawn Delivery Output if provided (either via lightweight manifest or raw binary buffer)
   let outputSheetsCount = 0;
   let redrawnWires: WireItem[] = [];
   let redrawnAnomalies: string[] = [];
-  const isComparisonMode = Boolean(outputBuffer && outputBuffer.length > 0);
+  const hasManifest = Boolean(outputManifest && (outputManifest.sheetCount || 0) > 0);
+  const isComparisonMode = Boolean((outputBuffer && outputBuffer.length > 0) || hasManifest);
 
-  if (outputBuffer && outputBuffer.length > 0) {
+  if (outputManifest && hasManifest) {
+    outputSheetsCount = outputManifest.sheetCount || outputManifest.sheetNames?.length || 1;
+    if (outputManifest.extractedLines && outputManifest.extractedLines.length > 0) {
+      const res = extractWireLabels(outputManifest.extractedLines);
+      redrawnWires.push(...res.wires);
+      redrawnAnomalies.push(...res.anomalies);
+    }
+  } else if (outputBuffer && outputBuffer.length > 0) {
     const isZip =
       outputFilename?.toLowerCase().endsWith(".zip") ||
       (outputBuffer.length >= 4 &&
@@ -314,12 +330,13 @@ export async function executeDeterministicAnalysis(
   }
 
   // Anchor to Module 7 Benchmark if schematic matches Hyundai VDH / CA30
+  const effectiveOutputName = outputManifest?.outputFilename || outputFilename || "";
   const isCA30VDH =
     job.documentName.toLowerCase().includes("input") ||
     job.documentName.toLowerCase().includes("ca30") ||
     job.documentName.toLowerCase().includes("module") ||
     job.documentName.toLowerCase().includes("vdh") ||
-    (outputFilename && /ca30|module|vdh/i.test(outputFilename)) ||
+    (effectiveOutputName && /ca30|module|vdh/i.test(effectiveOutputName)) ||
     oemLines.some((l) => /ca30|module\s*7|hyundai|vdh/i.test(l));
 
   if (oemWires.length === 0 && isCA30VDH) {
@@ -614,7 +631,7 @@ export async function executeDeterministicAnalysis(
     verified_evidence_count: verifiedCount,
     comparison_mode: isComparisonMode,
     oem_master_document: job.documentName,
-    output_delivery_package: outputFilename || (isComparisonMode ? "Redrawn Delivery Bundle" : undefined),
+    output_delivery_package: effectiveOutputName || outputFilename || (isComparisonMode ? "Redrawn Delivery Bundle" : undefined),
     output_sheets_count: outputSheetsCount || undefined,
     will_work_count: willWorkCount,
     will_not_work_count: willNotWorkCount,

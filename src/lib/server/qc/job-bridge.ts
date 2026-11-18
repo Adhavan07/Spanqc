@@ -7,7 +7,7 @@ import os from "node:os";
 import { db } from "../db";
 import { storeDocument, retrieveDocument } from "../storage/document-store";
 import { validateUploadFile, DocumentValidationError } from "./validator";
-import { executeDeterministicAnalysis } from "./deterministic-engine";
+import { executeDeterministicAnalysis, type OutputDeliveryManifest } from "./deterministic-engine";
 import type { QCJobStatus, QCOverallOutcome, QCReport } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -64,6 +64,7 @@ export interface CreateJobInput {
   originalFilename?: string;
   outputFileBuffer?: Buffer;
   outputFilename?: string;
+  outputManifest?: OutputDeliveryManifest | null;
   standard?: string;
   expectedNetlistJson?: string | null;
   specificationIsComplete?: boolean | null;
@@ -337,7 +338,8 @@ export async function createQCJob(input: CreateJobInput) {
         undefined,
         input.fileBuffer,
         input.outputFileBuffer,
-        input.outputFilename
+        input.outputFilename,
+        input.outputManifest
       );
       const updatedJob = await db.qCJob.findUnique({
         where: { id: result.job.id },
@@ -596,7 +598,8 @@ export async function processQCJob(
   customClaimToken?: string,
   directBuffer?: Buffer,
   outputFileBuffer?: Buffer,
-  outputFilename?: string
+  outputFilename?: string,
+  outputManifest?: OutputDeliveryManifest | null
 ): Promise<void> {
   // 1. Claim job atomically: QUEUED -> PROCESSING with unique claimToken
   const claim = await claimJob(jobId, customClaimToken);
@@ -697,7 +700,8 @@ export async function processQCJob(
         documentBuffer,
         job,
         outputFileBuffer,
-        outputFilename
+        outputFilename,
+        outputManifest
       );
     } else {
       // Dev / Container path: Invoke Python microservice with bounded timeout
@@ -791,7 +795,8 @@ export async function processQCJob(
             documentBuffer,
             job,
             outputFileBuffer,
-            outputFilename
+            outputFilename,
+            outputManifest
           );
         }
       }

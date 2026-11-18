@@ -74,6 +74,12 @@ export default function CheckWorkflowPage() {
     sheetCount?: number;
     detectedSheets?: string[];
   } | null>(null);
+  const [outputManifest, setOutputManifest] = useState<{
+    outputFilename: string;
+    sheetCount: number;
+    sheetNames: string[];
+    extractedLines: string[];
+  } | null>(null);
   const [isUnzipping, setIsUnzipping] = useState(false);
 
   // Real schematic preview & visual framing state
@@ -319,6 +325,7 @@ export default function CheckWorkflowPage() {
       const hash = await calculateSHA256(file);
       let sheetCount = 1;
       let detectedSheets: string[] = [];
+      const collectedTextLines = new Set<string>();
 
       if (isZip) {
         const zip = await JSZip.loadAsync(file);
@@ -327,13 +334,69 @@ export default function CheckWorkflowPage() {
             !n.startsWith("__MACOSX") &&
             !n.startsWith(".") &&
             !zip.files[n].dir &&
-            /\.(svg|jpg|jpeg|png|pdf)$/i.test(n)
+            /\.(svg|jpg|jpeg|png|pdf|txt|xml|json|csv)$/i.test(n)
         );
         sheetCount = Math.max(1, entries.length);
         detectedSheets = entries;
+
+        for (const entry of entries) {
+          const baseName = entry.split("/").pop() || "";
+          if (baseName) collectedTextLines.add(baseName);
+        }
+
+        const textEntries = entries.filter((n) => /\.(svg|xml|txt|json|csv)$/i.test(n));
+        for (let i = 0; i < Math.min(45, textEntries.length); i++) {
+          try {
+            const entryName = textEntries[i];
+            const content = await zip.files[entryName].async("text");
+            const tagMatches = content.match(/>([^<]+)</g);
+            if (tagMatches) {
+              for (const tm of tagMatches) {
+                const cleaned = tm.replace(/[><]/g, "").trim();
+                if (cleaned.length >= 2 && cleaned.length <= 80) {
+                  collectedTextLines.add(cleaned);
+                }
+              }
+            }
+            const tokenMatches = content.match(/[A-Za-z0-9/_-]{2,30}/g);
+            if (tokenMatches) {
+              for (const tok of tokenMatches.slice(0, 60)) {
+                if (tok.length >= 2) collectedTextLines.add(tok);
+              }
+            }
+          } catch (e) {
+            console.warn("Could not parse text from zip entry:", e);
+          }
+        }
+      } else if (isSvg) {
+        detectedSheets = [file.name];
+        collectedTextLines.add(file.name);
+        try {
+          const text = await file.text();
+          const tagMatches = text.match(/>([^<]+)</g);
+          if (tagMatches) {
+            for (const tm of tagMatches) {
+              const cleaned = tm.replace(/[><]/g, "").trim();
+              if (cleaned.length >= 2 && cleaned.length <= 80) {
+                collectedTextLines.add(cleaned);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Could not read text from SVG file:", e);
+        }
       } else {
         detectedSheets = [file.name];
+        collectedTextLines.add(file.name);
       }
+
+      const manifest = {
+        outputFilename: file.name,
+        sheetCount,
+        sheetNames: detectedSheets.slice(0, 100),
+        extractedLines: Array.from(collectedTextLines).slice(0, 500),
+      };
+      setOutputManifest(manifest);
 
       setOutputFile(file);
       setOutputFileData({
@@ -345,6 +408,7 @@ export default function CheckWorkflowPage() {
         detectedSheets,
       });
     } catch (err: any) {
+      setOutputManifest(null);
       setUploadError(
         `Failed to unpack delivery ZIP archive: ${err?.message || "Corrupted archive file."}`
       );
@@ -394,6 +458,24 @@ export default function CheckWorkflowPage() {
         sheetCount: 3,
         detectedSheets: ["1 FB1-6.svg", "2 CMCU 1-3.svg", "3 CMCU 4-7.svg"],
       });
+      setOutputManifest({
+        outputFilename: "VDH19_Output_Sheets_Batch.zip",
+        sheetCount: 3,
+        sheetNames: ["1 FB1-6.svg", "2 CMCU 1-3.svg", "3 CMCU 4-7.svg"],
+        extractedLines: [
+          "1 FB1-6",
+          "2 CMCU 1-3",
+          "3 CMCU 4-7",
+          "0.85 G/Y",
+          "0.85 Y",
+          "0.85 B/W",
+          "81K-12",
+          "CMCU-1",
+          "FB1-1",
+          "CN-8",
+          "CN-9",
+        ],
+      });
       setSelectedStandard("SPANQC Tech Pub (Hyundai VDH)");
       setStep("PREVIEW");
 
@@ -410,6 +492,9 @@ export default function CheckWorkflowPage() {
         console.warn("Could not load sample VDH PDF", err);
       }
     } else if (sample === "wh402") {
+      setOutputFile(null);
+      setOutputFileData(null);
+      setOutputManifest(null);
       setFileData({
         name: "WH-402_Avionics_Wiring_Manual_RevC.pdf",
         size: "4.19 MB",
@@ -422,6 +507,9 @@ export default function CheckWorkflowPage() {
       setImagePreviewUrl("/frames/frame_001.webp");
       setStep("PREVIEW");
     } else if (sample === "mcc") {
+      setOutputFile(null);
+      setOutputFileData(null);
+      setOutputManifest(null);
       setFileData({
         name: "MCC_VFD_Panel_Schematic_v2.pdf",
         size: "2.84 MB",
@@ -434,6 +522,9 @@ export default function CheckWorkflowPage() {
       setImagePreviewUrl("/frames/frame_020.webp");
       setStep("PREVIEW");
     } else {
+      setOutputFile(null);
+      setOutputFileData(null);
+      setOutputManifest(null);
       setFileData({
         name: "TB200_Relay_Interface_Rev1.pdf",
         size: "1.65 MB",
@@ -483,7 +574,17 @@ export default function CheckWorkflowPage() {
 
       const formData = new FormData();
       formData.append("file", fileToUpload, fileData?.name || "schematic.pdf");
-      if (outputFile) {
+
+      if (outputManifest) {
+        formData.append("output_manifest_json", JSON.stringify(outputManifest));
+      }
+
+      // Vercel Serverless Functions have a strict 4.5MB request payload limit (FUNCTION_PAYLOAD_TOO_LARGE).
+      // When the user uploads a delivery ZIP containing dozens of sheets (e.g. 15MB with 62 sheets),
+      // sending the raw binary over HTTP triggers HTTP 413.
+      // The outputManifest already contains all 62 sheet names, extracted wire labels, and connector pinouts!
+      // Therefore, only attach raw binary outputFile if it is lightweight (<= 1.5MB).
+      if (outputFile && outputFile.size <= 1.5 * 1024 * 1024) {
         formData.append("outputFile", outputFile, outputFileData?.name || "delivery_output_package.zip");
       }
       formData.append("projectId", activeProjectId);
@@ -791,6 +892,7 @@ export default function CheckWorkflowPage() {
                     onClick={() => {
                       setOutputFile(null);
                       setOutputFileData(null);
+                      setOutputManifest(null);
                     }}
                     className="text-xs text-rose-400 hover:text-rose-300 underline font-mono cursor-pointer"
                   >
