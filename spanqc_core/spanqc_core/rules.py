@@ -17,8 +17,12 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .standards.registry import Discipline, get_standard
-from .wirecodes import colour_is_valid, norm_colour, norm_size, norm_terminal, norm_wire_no
+try:
+    from .standards.registry import Discipline, get_standard
+    from .wirecodes import colour_is_valid, norm_colour, norm_size, norm_terminal, norm_wire_no
+except (ImportError, ValueError):
+    from spanqc_core.standards.registry import Discipline, get_standard
+    from spanqc_core.wirecodes import colour_is_valid, norm_colour, norm_size, norm_terminal, norm_wire_no
 
 PASS, FAIL, REVIEW = "PASS", "FAIL", "REVIEW"
 

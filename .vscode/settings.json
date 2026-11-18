@@ -1,0 +1,11 @@
+{
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/spanqc_core",
+    "${workspaceFolder}/spanqc_core/spanqc_core"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/spanqc_core",
+    "${workspaceFolder}/spanqc_core/spanqc_core"
+  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/spanqc_core/.venv/bin/python"
+}

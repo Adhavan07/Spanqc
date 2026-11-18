@@ -1,0 +1,18 @@
+{
+  "include": [
+    "spanqc_core"
+  ],
+  "extraPaths": [
+    "spanqc_core",
+    "spanqc_core/spanqc_core"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "spanqc_core",
+      "extraPaths": [
+        "spanqc_core",
+        "spanqc_core/spanqc_core"
+      ]
+    }
+  ]
+}

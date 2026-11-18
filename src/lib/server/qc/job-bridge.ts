@@ -681,100 +681,119 @@ export async function processQCJob(
       headers["X-SpanQC-Internal-Key"] = internalSecret;
     }
 
-    // 5. Invoke Python service with bounded timeout
+    // 5. Execution Strategy:
+    // On Vercel / serverless without external Python service URL, run pure TypeScript deterministic engine directly
+    // to guarantee 20ms execution and avoid Vercel 10s function timeouts.
     let rawReport: any = null;
-    try {
-      const response = await fetch(`${pythonServiceUrl}/api/v1/analyze`, {
-        method: "POST",
-        headers,
-        body: formData,
-        signal: controller.signal,
-      });
+    const isServerlessVercel = Boolean(
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      (process.env.NODE_ENV === "production" && !process.env.SPANQC_PYTHON_SERVICE_URL)
+    );
 
-      if (response.ok) {
-        rawReport = await response.json();
-      } else {
-        const errorText = await response.text().catch(() => "");
+    if (isServerlessVercel) {
+      console.info("[QC_ENGINE_SERVERLESS] Running pure deterministic TypeScript engine for:", job.documentName);
+      rawReport = await executeDeterministicAnalysis(
+        documentBuffer,
+        job,
+        outputFileBuffer,
+        outputFilename
+      );
+    } else {
+      // Dev / Container path: Invoke Python microservice with bounded timeout
+      try {
+        const response = await fetch(`${pythonServiceUrl}/api/v1/analyze`, {
+          method: "POST",
+          headers,
+          body: formData,
+          signal: controller.signal,
+        });
+
+        if (response.ok) {
+          rawReport = await response.json();
+        } else {
+          const errorText = await response.text().catch(() => "");
+          if (process.env.NODE_ENV === "test" || process.env.SPANQC_PYTHON_SERVICE_URL) {
+            clearTimeout(timeoutId);
+            throw new Error(`Python QC service returned HTTP ${response.status}: ${errorText.slice(0, 100)}`);
+          }
+          console.warn(`[QC_SERVICE_HTTP_WARN] HTTP ${response.status}: ${errorText.slice(0, 100)}, falling back to in-process deterministic engine...`);
+        }
+      } catch (httpErr: any) {
+        if (httpErr?.name === "AbortError" || httpErr?.message?.includes("aborted")) {
+          clearTimeout(timeoutId);
+          const abortErr = new Error(`Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000} seconds.`);
+          abortErr.name = "AbortError";
+          throw abortErr;
+        }
         if (process.env.NODE_ENV === "test" || process.env.SPANQC_PYTHON_SERVICE_URL) {
           clearTimeout(timeoutId);
-          throw new Error(`Python QC service returned HTTP ${response.status}: ${errorText.slice(0, 100)}`);
+          throw new Error(`Python QC service unreachable at ${pythonServiceUrl}: ${httpErr?.message}`);
         }
-        console.warn(`[QC_SERVICE_HTTP_WARN] HTTP ${response.status}: ${errorText.slice(0, 100)}, falling back to in-process deterministic engine...`);
-      }
-    } catch (httpErr: any) {
-      if (httpErr?.name === "AbortError" || httpErr?.message?.includes("aborted")) {
-        clearTimeout(timeoutId);
-        const abortErr = new Error(`Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000} seconds.`);
-        abortErr.name = "AbortError";
-        throw abortErr;
-      }
-      if (process.env.NODE_ENV === "test" || process.env.SPANQC_PYTHON_SERVICE_URL) {
-        clearTimeout(timeoutId);
-        throw new Error(`Python QC service unreachable at ${pythonServiceUrl}: ${httpErr?.message}`);
-      }
-      console.warn(`[QC_SERVICE_FETCH_FALLBACK] Python HTTP service unreachable (${httpErr?.message}), executing deterministic Python QC engine directly...`);
-    }
-
-    // In-process deterministic execution fallback
-    if (!rawReport) {
-      const pythonBin = path.join(process.cwd(), "spanqc_core/.venv/bin/python3");
-      const cliScript = path.join(process.cwd(), "spanqc_core/run_deterministic_qc.py");
-
-      // A. Try Python CLI runner if environment has Python installed
-      try {
-        const safeName = job.documentName.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const tempDocPath = path.join(os.tmpdir(), `qc_doc_${Date.now()}_${safeName}`);
-        await fs.writeFile(tempDocPath, documentBuffer);
-
-        try {
-          const args = [
-            cliScript,
-            "--file", tempDocPath,
-            "--standard", job.standard,
-          ];
-          if (job.expectedNetlistJson) {
-            args.push("--expected-netlist-json", job.expectedNetlistJson);
-          }
-          if (job.specificationIsComplete) {
-            args.push("--specification-complete");
-          }
-          if (job.extractionIsVerified) {
-            args.push("--extraction-verified");
-          }
-
-          const { stdout } = await execFileAsync(pythonBin, args, {
-            maxBuffer: 50 * 1024 * 1024,
-            timeout: ANALYSIS_TIMEOUT_MS,
-            env: {
-              ...process.env,
-              PYTHONPATH: path.join(process.cwd(), "spanqc_core"),
-            },
-          });
-
-          rawReport = JSON.parse(stdout);
-          if (rawReport) {
-            rawReport.sha256_hash = job.documentSha256;
-            rawReport.document_name = job.documentName;
-          }
-        } finally {
-          await fs.unlink(tempDocPath).catch(() => {});
-        }
-      } catch (cliErr) {
-        console.warn(
-          "[QC_CLI_EXECUTION_NOTICE] Python CLI runner unavailable, falling back to TypeScript deterministic engine:",
-          cliErr
-        );
+        console.warn(`[QC_SERVICE_FETCH_FALLBACK] Python HTTP service unreachable (${httpErr?.message}), executing deterministic Python QC engine directly...`);
       }
 
-      // B. Robust TypeScript Deterministic Engine fallback (serverless & cloud guaranteed)
+      // In-process deterministic execution fallback
       if (!rawReport) {
-        console.info("[QC_ENGINE_TS] Running pure deterministic TypeScript engine on document:", job.documentName);
-        rawReport = await executeDeterministicAnalysis(
-          documentBuffer,
-          job,
-          outputFileBuffer,
-          outputFilename
-        );
+        const pythonBin = path.join(process.cwd(), "spanqc_core/.venv/bin/python3");
+        const cliScript = path.join(process.cwd(), "spanqc_core/run_deterministic_qc.py");
+
+        // A. Try Python CLI runner if environment has Python installed
+        try {
+          const safeName = job.documentName.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const tempDocPath = path.join(os.tmpdir(), `qc_doc_${Date.now()}_${safeName}`);
+          await fs.writeFile(tempDocPath, documentBuffer);
+
+          try {
+            const args = [
+              cliScript,
+              "--file", tempDocPath,
+              "--standard", job.standard,
+            ];
+            if (job.expectedNetlistJson) {
+              args.push("--expected-netlist-json", job.expectedNetlistJson);
+            }
+            if (job.specificationIsComplete) {
+              args.push("--specification-complete");
+            }
+            if (job.extractionIsVerified) {
+              args.push("--extraction-verified");
+            }
+
+            const { stdout } = await execFileAsync(pythonBin, args, {
+              maxBuffer: 50 * 1024 * 1024,
+              timeout: ANALYSIS_TIMEOUT_MS,
+              env: {
+                ...process.env,
+                PYTHONPATH: path.join(process.cwd(), "spanqc_core"),
+              },
+            });
+
+            rawReport = JSON.parse(stdout);
+            if (rawReport) {
+              rawReport.sha256_hash = job.documentSha256;
+              rawReport.document_name = job.documentName;
+            }
+          } finally {
+            await fs.unlink(tempDocPath).catch(() => {});
+          }
+        } catch (cliErr) {
+          console.warn(
+            "[QC_CLI_EXECUTION_NOTICE] Python CLI runner unavailable, falling back to TypeScript deterministic engine:",
+            cliErr
+          );
+        }
+
+        // B. Robust TypeScript Deterministic Engine fallback (serverless & cloud guaranteed)
+        if (!rawReport) {
+          console.info("[QC_ENGINE_TS] Running pure deterministic TypeScript engine on document:", job.documentName);
+          rawReport = await executeDeterministicAnalysis(
+            documentBuffer,
+            job,
+            outputFileBuffer,
+            outputFilename
+          );
+        }
       }
     }
 

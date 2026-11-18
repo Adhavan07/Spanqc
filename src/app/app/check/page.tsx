@@ -500,9 +500,20 @@ export default function CheckWorkflowPage() {
         body: formData,
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          response.ok
+            ? "Invalid server response received."
+            : `Server returned HTTP ${response.status} (${response.statusText}): ${responseText.slice(0, 120)}`
+        );
+      }
+
       if (!response.ok) {
-        throw new Error(data.detail || "Failed to create QC job in queue.");
+        throw new Error(data.detail || `Server error (HTTP ${response.status}): Failed to create QC job.`);
       }
 
       const jobId = data.job_id;
@@ -514,7 +525,18 @@ export default function CheckWorkflowPage() {
         pollCount++;
         try {
           const jobRes = await fetch(`/api/v1/qc/jobs/${jobId}`);
-          const jobData = await jobRes.json();
+          if (!jobRes.ok) {
+            console.warn(`[QC_POLL_WARN] Polling returned HTTP ${jobRes.status}`);
+            return;
+          }
+          const jobText = await jobRes.text();
+          let jobData: any;
+          try {
+            jobData = JSON.parse(jobText);
+          } catch {
+            console.warn("[QC_POLL_WARN] Polling received non-JSON payload");
+            return;
+          }
 
           if (jobData.status === "QUEUED") {
             setProcessingStage(1);
