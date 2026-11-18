@@ -77,19 +77,14 @@ export interface CreateJobInput {
  */
 export async function reconcileQuotaOnce(jobId: string, tenantId: string): Promise<boolean> {
   return await db.$transaction(async (tx) => {
-    const currentJob = await tx.qCJob.findUnique({
-      where: { id: jobId },
-      select: { quotaRefunded: true, tenantId: true },
-    });
-
-    if (!currentJob || currentJob.quotaRefunded) {
-      return false; // Already refunded or nonexistent
-    }
-
-    await tx.qCJob.update({
-      where: { id: jobId },
+    const updated = await tx.qCJob.updateMany({
+      where: { id: jobId, quotaRefunded: false },
       data: { quotaRefunded: true },
     });
+
+    if (updated.count === 0) {
+      return false; // Already refunded or nonexistent
+    }
 
     await tx.tenant.update({
       where: { id: tenantId },
