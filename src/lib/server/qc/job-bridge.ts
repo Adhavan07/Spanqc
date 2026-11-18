@@ -676,7 +676,7 @@ export async function processQCJob(
         rawReport = await response.json();
       } else {
         const errorText = await response.text().catch(() => "");
-        if (process.env.SPANQC_PYTHON_SERVICE_URL) {
+        if (process.env.NODE_ENV === "test" || process.env.SPANQC_PYTHON_SERVICE_URL) {
           clearTimeout(timeoutId);
           throw new Error(`Python QC service returned HTTP ${response.status}: ${errorText.slice(0, 100)}`);
         }
@@ -689,7 +689,7 @@ export async function processQCJob(
         abortErr.name = "AbortError";
         throw abortErr;
       }
-      if (process.env.SPANQC_PYTHON_SERVICE_URL) {
+      if (process.env.NODE_ENV === "test" || process.env.SPANQC_PYTHON_SERVICE_URL) {
         clearTimeout(timeoutId);
         throw new Error(`Python QC service unreachable at ${pythonServiceUrl}: ${httpErr?.message}`);
       }
