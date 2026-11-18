@@ -676,9 +676,23 @@ export async function processQCJob(
         rawReport = await response.json();
       } else {
         const errorText = await response.text().catch(() => "");
+        if (process.env.SPANQC_PYTHON_SERVICE_URL) {
+          clearTimeout(timeoutId);
+          throw new Error(`Python QC service returned HTTP ${response.status}: ${errorText.slice(0, 100)}`);
+        }
         console.warn(`[QC_SERVICE_HTTP_WARN] HTTP ${response.status}: ${errorText.slice(0, 100)}, falling back to in-process deterministic engine...`);
       }
     } catch (httpErr: any) {
+      if (httpErr?.name === "AbortError" || httpErr?.message?.includes("aborted")) {
+        clearTimeout(timeoutId);
+        const abortErr = new Error(`Analysis timed out after ${ANALYSIS_TIMEOUT_MS / 1000} seconds.`);
+        abortErr.name = "AbortError";
+        throw abortErr;
+      }
+      if (process.env.SPANQC_PYTHON_SERVICE_URL) {
+        clearTimeout(timeoutId);
+        throw new Error(`Python QC service unreachable at ${pythonServiceUrl}: ${httpErr?.message}`);
+      }
       console.warn(`[QC_SERVICE_FETCH_FALLBACK] Python HTTP service unreachable (${httpErr?.message}), executing deterministic Python QC engine directly...`);
     }
 
