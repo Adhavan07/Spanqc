@@ -352,15 +352,29 @@ export async function createReportFromUploadedFile(
   return { reportId, report: newReport };
 }
 
+import { exportProfessionalQCWorkbook } from "./excel-export";
+
 /**
- * Trigger real Excel/CSV download in the browser
+ * Trigger professional 4-tab Excel workbook download in the browser (.xlsx)
+ * Generates identical layout to Module 7 CA30 reference:
+ *  1. CORRECTION - Pin Audit & Reconciliation
+ *  2. Wire List (15 columns, formula totals bar, classification pills, inch-by-inch notes)
+ *  3. Component-Connector Ref
+ *  4. QA Notes & Flags (numbered flags, action needed, and classification legend)
  */
-export function triggerExcelExport(report: QCRun): void {
+export async function triggerExcelExport(report: QCRun, extraObservations?: any[]): Promise<void> {
   if (typeof window === "undefined") return;
 
+  try {
+    await exportProfessionalQCWorkbook(report, extraObservations);
+  } catch (err) {
+    console.error("ExcelJS export failed, falling back to structured CSV:", err);
+    fallbackCsvExport(report);
+  }
+}
+
+function fallbackCsvExport(report: QCRun): void {
   const findings = report.findings || [];
-  
-  // CSV Header lines
   const rows: string[][] = [
     ["SPANQC ENGINEERING QC INSPECTION REPORT (CSV EXCEL COMPATIBLE)"],
     ["Document Name", report.document?.filename || "Schematic"],

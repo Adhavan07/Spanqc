@@ -210,8 +210,8 @@ export default function QCReportDetailPage({
       setExportNotice("Compiling formal printable PDF QC Inspection Report...");
       triggerPdfExport(qcRun);
     } else {
-      setExportNotice("Downloading structured Excel spreadsheet (CSV format with full coordinates)...");
-      triggerExcelExport(qcRun);
+      setExportNotice("Compiling professional 4-tab Engineering QC Workbook (.xlsx)...");
+      triggerExcelExport(qcRun, observations);
     }
     setTimeout(() => {
       setExportNotice(null);
