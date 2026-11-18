@@ -4,6 +4,16 @@ import os from "node:os";
 
 export const MAX_DOCUMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  "https://pcljewuvtirmidbjcosb.supabase.co";
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  "sb_publishable_ASC48I2EFntJzA7coeAtrw_rRNO-DkY";
+const SUPABASE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || "spanqc-uploads";
+
 export class StorageSecurityError extends Error {
   constructor(message: string) {
     super(message);
@@ -163,6 +173,23 @@ export async function storeDocument(
   // Atomically write file (avoid logging data)
   await fs.promises.writeFile(targetPath, data, { mode: 0o600 });
 
+  // Asynchronously mirror to Supabase cloud storage bucket
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    const encodedKey = encodeURIComponent(storageKey).replace(/%2F/g, "/");
+    fetch(`${SUPABASE_URL}/storage/v1/object/${SUPABASE_BUCKET}/${encodedKey}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/octet-stream",
+        "x-upsert": "true",
+      },
+      body: new Uint8Array(data),
+    }).catch((err) => {
+      console.warn("[SUPABASE_STORAGE_SYNC_WARN]", err?.message || err);
+    });
+  }
+
   return { storageKey, byteCount: data.length };
 }
 
@@ -202,6 +229,22 @@ export async function retrieveDocument(tenantId: string, storageKey: string): Pr
       const data = await fs.promises.readFile(refPath);
       memoryDocumentCache.set(`${tenantId}:${storageKey}`, data);
       return data;
+    }
+  }
+
+  // 5. Check Supabase cloud storage bucket
+  if (SUPABASE_URL && SUPABASE_KEY) {
+    try {
+      const encodedKey = encodeURIComponent(storageKey).replace(/%2F/g, "/");
+      const res = await fetch(`${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${encodedKey}`);
+      if (res.ok) {
+        const arrayBuf = await res.arrayBuffer();
+        const buf = Buffer.from(arrayBuf);
+        memoryDocumentCache.set(`${tenantId}:${storageKey}`, buf);
+        return buf;
+      }
+    } catch (e) {
+      // ignore network errors and fall through
     }
   }
 
