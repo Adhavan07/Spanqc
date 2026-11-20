@@ -25,8 +25,10 @@ interface WireItem {
 }
 
 const KNOWN_COLOURS = new Set([
-  "BK", "WH", "RD", "GN", "BU", "YE", "OG", "BN", "GY", "VT", "PK",
-  "LT GN", "DK BU", "LT BU", "DK GN"
+  "BK", "WH", "RD", "GN", "BU", "YE", "OG", "BN", "GY", "VT", "PK", "TQ", "GNYE",
+  "LT GN", "DK BU", "LT BU", "DK GN",
+  // Hyundai single and dual letter abbreviations from Reference Catalogue
+  "B", "W", "R", "G", "L", "Y", "BR", "OR", "V", "GR", "P", "LG"
 ]);
 
 function isValidColour(code: string): boolean {

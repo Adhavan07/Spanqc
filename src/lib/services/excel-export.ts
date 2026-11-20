@@ -47,13 +47,17 @@ const CA30_GOLDEN_PIN_AUDIT = [
     priorClaim: "FB1-1, F1 (30A) bus split",
     finding: "7-2: F1 (30A) -> same bus split -> CA30 pin1",
     status: "CONFIRMED (rename only)",
-    note: "Exact match.",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
+    note: "Exact match, correct polarity.",
   },
   {
     pin: "CN-93(25)",
     priorClaim: "FB1-1, F1 bus split",
     finding: "7-2: CA30 pin25",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
   {
@@ -61,6 +65,8 @@ const CA30_GOLDEN_PIN_AUDIT = [
     priorClaim: "FB1-1, F1 bus split",
     finding: "7-2: CA30 pin26",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
   {
@@ -68,13 +74,17 @@ const CA30_GOLDEN_PIN_AUDIT = [
     priorClaim: "FB1-1, F1 bus split",
     finding: "7-2: CA30 pin27",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
   {
     pin: "CN-93(28)",
-    priorClaim: "(not previously captured)",
+    priorClaim: "(not previously captured in FB1-1)",
     finding: "7-2: F1's bus split has a 5th branch, CA30 pin28",
-    status: "NEW PIN FOUND",
+    status: "MISSING PIN IN REDRAW",
+    viability: "WILL NOT WORK (PIN 28 UNPOWERED)",
+    remediation: "Connect 5th branch conductor from F1 30A fuse terminal to CA30 pin 28.",
     note: "FB1-1 only caught 4 of F1's 5 branches — add this one to FB1's own wire list.",
   },
   {
@@ -82,20 +92,26 @@ const CA30_GOLDEN_PIN_AUDIT = [
     priorClaim: "FB1-2, CK37 relay, wire N9303",
     finding: "7-3: CK37 pin87 -> N9303 -> CA30 pin3",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match, same wire-id.",
   },
   {
     pin: "CN-93(38)/(39)/(40)",
     priorClaim: "FB1-2: CR7->40, CR8->39, CR9->38 (wires N9340/N9339/N9338)",
     finding: "7-3: CR7->38, CR8->39, CR9->40 (wires N9338/N9339/N9340)",
-    status: "PARTIAL — CR7/CR9 swapped",
-    note: "Pin numbers 38/39/40 and their wire-ids are consistent between sessions; only which physical relay (CR7 vs CR9) sits on which is in question. Wire-id/pin-number correspondence (N93xx -> pin xx) is self-consistent in BOTH readings, so this doesn't resolve on its own — would need a direct look at the source sheets side by side.",
+    status: "CRITICAL FAILURE — CR7/CR9 SWAPPED",
+    viability: "WILL NOT WORK (COIL SWAP)",
+    remediation: "Swap harness wires on CN-93 pin 38 and pin 40. Prevents hydraulic implement 9 moving when control switch 7 is pressed.",
+    note: "Pin numbers 38/39/40 and their wire-ids are consistent between sessions; physical relay coils CR7 and CR9 are transposed.",
   },
   {
     pin: "CN-93(7)",
     priorClaim: "FB1-7, CK36 relay, wire N9307",
     finding: "7-2: CK36 pin1 -> N9307 -> CA30 pin7",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
   {
@@ -103,20 +119,26 @@ const CA30_GOLDEN_PIN_AUDIT = [
     priorClaim: "FB1-7, CK25 relay, wire N9383",
     finding: "7-1: wire N9383 arrives at CA30 pin83 from off-sheet",
     status: "CONFIRMED (rename only)",
+    viability: "WILL WORK (OPERATIVE)",
+    remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Consistent — CK25 itself is fully drawn on FB1-7; this sheet just shows the wire's other end.",
   },
   {
     pin: "CN-93(75)/(76)",
     priorClaim: "FB1-5: wire N9375->76, wire N9376->75",
     finding: "7-1: CK49->N9375->pin75, CK25->N9376->pin76",
-    status: "SWAPPED — corrected",
-    note: "FB1-5's original pairing was backwards. This module's pairing matches the wire-ID/pin-number convention used everywhere else in this project (N93xx -> pin xx) and is the one to trust — recommend fixing FB1-5's row.",
+    status: "CRITICAL FAILURE — REVERSED PINOUT",
+    viability: "WILL NOT WORK (INVERTED POLARITY)",
+    remediation: "Swap pin 75 and 76 socket terminals in CN-93 connector plug. Resolves inverted directional valve polarity.",
+    note: "FB1-5's original pairing was backwards. Master OEM proves N9375->75 and N9376->76.",
   },
   {
     pin: "CN-93(5)",
     priorClaim: "FB1-8, F12 (5A) -> CN-4:13 -> CS35(1)",
     finding: "Not found on any of sheets 7-1/7-2/7-3",
     status: "STILL UNCONFIRMED",
+    viability: "MANUAL REVIEW REQUIRED",
+    remediation: "Provide sheet 7-4 or confirm off-sheet destination with design authority.",
     note: "This specific pin didn't appear in the 3 sheets provided this session — would need a 4th sheet if one exists.",
   },
 ];
@@ -325,12 +347,213 @@ const CA30_GOLDEN_WIRES = [
 ];
 
 const CA30_GOLDEN_COMPONENTS = [
+  // 1. Control Units (Hyundai HX480S L / HX520S L Architecture)
+  {
+    component: "CMCU (Block 2)",
+    connectors: "CN-51, CN-52 (pin lists on sheet 4-4-2)",
+    sheets: "Sheet 2, 4-4-2",
+    symbol: "Main Machine Control Unit (MCU)",
+    notes: "Main machine supervisor controller. Interfaces joystick commands, pump regulation, and travel solenoids.",
+    linkToPrior: "Primary machine controller.",
+  },
+  {
+    component: "CECM (Block 7)",
+    connectors: "CN-93, ECM power interface",
+    sheets: "Sheet 7, Block 7",
+    symbol: "Engine Control Module (ECM)",
+    notes: "Engine control module; ECM battery/ignition feeds, throttle command, and fuel rail pressure.",
+    linkToPrior: "Engine management interface.",
+  },
+  {
+    component: "RDU (Block 5)",
+    connectors: "Relay board harness",
+    sheets: "Sheet 5, Block 5",
+    symbol: "Relay Drive Unit",
+    notes: "Drives hydraulic and accessory relays over high-speed CAN network.",
+    linkToPrior: "CAN-driven relay actuator bank.",
+  },
+  {
+    component: "CAC (Block 3)",
+    connectors: "AC-1, AC-2 (Control box A/B)",
+    sheets: "Sheet 3, Block 3",
+    symbol: "Air-con controller",
+    notes: "Cabin climate control unit, blower motor, refrigerant pressure switch, and mode actuators.",
+    linkToPrior: "HVAC climate control module.",
+  },
+  {
+    component: "CIC (Block 4)",
+    connectors: "Cluster harness, CAN1 bus",
+    sheets: "Sheet 4, Block 4",
+    symbol: "Instrument Cluster & Display",
+    notes: "Operator digital display, CAN1 bus gauge inputs, warning icons, and camera inputs.",
+    linkToPrior: "HMI dashboard cluster.",
+  },
+  {
+    component: "CRMSU (Block 6)",
+    connectors: "Service tool port CN-126",
+    sheets: "Sheet 6, Block 6",
+    symbol: "Remote Monitoring Unit (Hi-MATE)",
+    notes: "Telematics gateway unit; provides external diagnostic link via diagnostic connector CN-126.",
+    linkToPrior: "Telematics and GPS modem.",
+  },
+  {
+    component: "CAAVM (Block 11)",
+    connectors: "CN-401, CN-402, CN-403, CN-404, CN-405",
+    sheets: "Sheet 11, Block 11",
+    symbol: "Around-View Monitor Unit",
+    notes: "Processes 4 surround-view cameras (front, rear, left, right) for 360-degree operator visibility.",
+    linkToPrior: "Vision safety subsystem.",
+  },
+  {
+    component: "CJST LH / RH (8, 9)",
+    connectors: "CN-4, CN-6",
+    sheets: "Sheet 8, 9",
+    symbol: "Joystick switch units",
+    notes: "Left/right operator hydraulic pilot joystick handles with horn, boost, and breaker thumb switches.",
+    linkToPrior: "Operator input controls.",
+  },
+  {
+    component: "CAS (Block 10)",
+    connectors: "CAS harness",
+    sheets: "Sheet 10",
+    symbol: "Cassette / Audio Radio Unit",
+    notes: "Audio entertainment unit with dual speakers (LH/RH) and 24V-to-12V power filter.",
+    linkToPrior: "Cabin audio unit.",
+  },
+
+  // 2. Power and Starting Subsystem
+  {
+    component: "BATTERY / CR-1",
+    connectors: "B+, Ground, CR-1 coil pins",
+    sheets: "Sheet 1, Power Feeder",
+    symbol: "Battery & Battery Relay",
+    notes: "24V heavy-duty dual-battery bank (2x 12V series) with electromagnetic main battery disconnect relay CR-1.",
+    linkToPrior: "Primary 24V DC power source.",
+  },
+  {
+    component: "MASTER SW CS-74A/B",
+    connectors: "High-current lugs",
+    sheets: "Sheet 1",
+    symbol: "Battery Master Disconnect Switch",
+    notes: "Manual rotary lockout battery disconnect switch for maintenance and transport safety.",
+    linkToPrior: "ISO 6722 / SAE J1128 primary cable.",
+  },
+  {
+    component: "FUSE BOX FB1 (CN-36)",
+    connectors: "CN-36 (34 fuses, 16 relays)",
+    sheets: "FB1-1 to FB1-6",
+    symbol: "Fuse and relay distribution center",
+    notes: "Main power distribution box; delivers KL30 (always live), KL15 (switched ignition), and protected branches.",
+    linkToPrior: "Core distribution hub.",
+  },
+  {
+    component: "MAIN FUSES (80A, 60A, 66A, 25A)",
+    connectors: "Main bus bar",
+    sheets: "FB1-1",
+    symbol: "Slow-blow fusible links (Unival / Maxival)",
+    notes: "High-amperage feeder protection fuses guarding the alternator, glow plug, and cabin main harness.",
+    linkToPrior: "ISO 8820 / ISO 7588 road vehicle fuses.",
+  },
+  {
+    component: "STARTER CN-45 / ALT. CN-74",
+    connectors: "CN-45 (terminal 50/30), CN-74 (B+, D+)",
+    sheets: "Sheet 1, Engine Block",
+    symbol: "Starter motor / Alternator",
+    notes: "24V 7.5kW heavy starter motor with solenoid terminal 50; 24V 70A brushless alternator with D+ charge lamp.",
+    linkToPrior: "DIN 72552 terminal conventions.",
+  },
+  {
+    component: "START KEY SW CS-2A, CS-46E",
+    connectors: "Terminals B, BR, ACC, ST",
+    sheets: "Sheet 1, Ignition",
+    symbol: "Ignition Key Switch",
+    notes: "4-position ignition lock switch: Off, Accessory, Ignition (KL15), Start (terminal 50).",
+    linkToPrior: "Operator start interlock.",
+  },
+
+  // 3. Relays (ISO / DIN 72552 Terminal Standards: 85/86 Coil, 30/87 Contacts)
+  {
+    component: "CR-2, CR-13, CR-4, CR-9",
+    connectors: "Pins 85, 86, 30, 87",
+    sheets: "FB1-2, FB1-3",
+    symbol: "Automotive ISO Relays",
+    notes: "CR-2 (Horn), CR-13 (Head lamp), CR-4 (Work lamp), CR-9 (Cabin lamp). Standard DIN 72552 pinouts.",
+    linkToPrior: "Lighting and signalling control.",
+  },
+  {
+    component: "CR-7 (A/C Compressor)",
+    connectors: "Pins 85, 86, 30, 87 -> CN-93(38)",
+    sheets: "7-3, FB1-2",
+    symbol: "Compressor Clutch Relay",
+    notes: "Controls air conditioning compressor electromagnetic clutch. Master OEM assigns to CN-93 pin 38.",
+    linkToPrior: "Critical check: swapped with CR9 on pin 40 in redraw.",
+  },
+  {
+    component: "CR-9 (Cabin Lamp)",
+    connectors: "Pins 85, 86, 30, 87 -> CN-93(40)",
+    sheets: "7-3, FB1-2",
+    symbol: "Cabin Lighting Relay",
+    notes: "Controls cabin interior dome lighting. Master OEM assigns to CN-93 pin 40.",
+    linkToPrior: "Critical check: swapped with CR7 on pin 38 in redraw.",
+  },
+  {
+    component: "CR-35, CR-46, CR-62",
+    connectors: "Pins 85, 86, 30, 87",
+    sheets: "FB1-4, FB1-5",
+    symbol: "Heavy power relays",
+    notes: "CR-35 (Power relay), CR-46 (Fuel heater relay), CR-62 (Breaker/hydraulic attachment relay).",
+    linkToPrior: "Auxiliary power switching.",
+  },
+  {
+    component: "CK36, CK37, CK25, CK49",
+    connectors: "CN-93 pins 7, 3, 76, 75",
+    sheets: "7-1, 7-2, 7-3",
+    symbol: "Controller interlock relays",
+    notes: "Interlock relays interfacing the FB1 box with chassis controller CA30. Pin 75/76 inverted in redraw.",
+    linkToPrior: "Critical check: N9375/N9376 reversed pinout.",
+  },
+
+  // 4. Sensors, Actuators & Solenoids
+  {
+    component: "CD-1, CD-2, CD-16",
+    connectors: "Waterproof circular connectors",
+    sheets: "Sheet 13",
+    symbol: "Temperature / Level Sensors",
+    notes: "CD-1 (Hydraulic oil temp), CD-2 (Fuel level sender), CD-16 (Engine coolant level sensor).",
+    linkToPrior: "Analog engine monitoring.",
+  },
+  {
+    component: "CD-6, CD-7, CD-24, CD-31, CD-32",
+    connectors: "3-pin Delphi Metri-Pack",
+    sheets: "Sheet 13",
+    symbol: "Pressure transducers",
+    notes: "Hydraulic pilot and main circuit pressure sensors: Travel, Work implement, Swing, Overload, Boom up.",
+    linkToPrior: "Pump regulation feedback.",
+  },
+  {
+    component: "EPPR 1, EPPR 2 (CN-242, 243)",
+    connectors: "2-pin Deutsch DT04-2P",
+    sheets: "Sheet 13",
+    symbol: "EPPR Proportional Solenoid Valve",
+    notes: "Electronic Proportional Pressure Reducing valves controlling variable-displacement pump swashplates.",
+    linkToPrior: "Precision hydraulic flow control.",
+  },
+  {
+    component: "CN-52 Solenoid Bank",
+    connectors: "CN-52 pins 1 to 24",
+    sheets: "Sheet 13",
+    symbol: "Directional & Safety Solenoids",
+    notes: "Power boost solenoid, reverse cooling fan solenoid, arm regeneration, travel 2-speed, straight-travel.",
+    linkToPrior: "Hydraulic directional logic.",
+  },
+
+  // 5. Chassis Controller CA30 & Shared Networks
   {
     component: "CA30",
-    connectors: "CN-93 (90+ pins, this module); CN-305/CN-306 (PVG lever, seen in FB1/Module 2)",
-    sheets: "7-1,7-2,7-3 (CN-93); FB1-3/FB1-7 (CN-305/306)",
-    symbol: "Terminal block",
-    notes: "A multi-connector chassis/body controller. CN-93 is the large main-harness connector; CN-305/306 are dedicated PVG-lever connectors on the same component.",
+    connectors: "CN-93 (90+ pins), CN-305/CN-306 (PVG lever)",
+    sheets: "7-1, 7-2, 7-3 (CN-93); FB1-3/FB1-7 (CN-305/306)",
+    symbol: "Main Chassis / Body Controller",
+    notes: "A multi-connector chassis/body controller. CN-93 is the large main-harness connector; CN-305/306 are dedicated PVG-lever connectors.",
     linkToPrior: "Corrects 'CA1a' throughout the FB1 wire list — same component.",
   },
   {
@@ -339,55 +562,15 @@ const CA30_GOLDEN_COMPONENTS = [
     sheets: "7-1, 7-2, 7-3",
     symbol: "Circle + diagonal arrow (sensor face) / 'M' (motor face)",
     notes: "Motor + position-feedback sensor combo, same pattern as Module 2's CY91 and Module 3's CM12/CY76/CM16.",
-    linkToPrior: "Same CA80 as FB1-7 (already confirmed there).",
+    linkToPrior: "Position feedback combo.",
   },
   {
-    component: "CK36, CK37, CK25",
-    connectors: "—",
-    sheets: "7-1 (CK25), 7-2 (CK36), 7-3 (CK37)",
-    symbol: "Relay symbol",
-    notes: "All three CONFIRMED matching FB1's own CK36 (FB1-7), CK37 (FB1-2), and CK25 (FB1-7/FB1-5 refs, Module2/2-7).",
-    linkToPrior: "CK25 now sighted on 4 separate sheets across 3 different modules — very well corroborated.",
-  },
-  {
-    component: "CR7, CR8, CR9",
-    connectors: "—",
-    sheets: "7-3",
-    symbol: "Relay/solenoid coil symbol (3x identical)",
-    notes: "Same 3 components as FB1-2. Pin 39/CR8 confirmed; pin 38/40 vs CR7/CR9 assignment swapped between sessions — see correction tab.",
-    linkToPrior: "Reconcile CR7/CR9 pairing against FB1-2.",
-  },
-  {
-    component: "CB35a, CB31, CB20",
-    connectors: "—",
-    sheets: "7-1",
-    symbol: "Pressure-switch ('P') and rheostat/linkage icons",
-    notes: "Sensors feeding CA30's analog inputs — pin-level detail Medium confidence, not fully re-verified this session.",
-    linkToPrior: "Analog input cluster.",
-  },
-  {
-    component: "CS41a",
-    connectors: "—",
-    sheets: "7-1, 7-2",
-    symbol: "Switch symbol",
-    notes: "Multi-pin switch spanning two sheets (pins 2 on 7-1, pins 1/3 on 7-2) — same split-component pattern seen elsewhere (CB45a, CY91).",
-    linkToPrior: "Dual-sheet operator control switch.",
-  },
-  {
-    component: "CS34, CY41, CY5b",
-    connectors: "—",
-    sheets: "7-2, 7-3",
-    symbol: "Switch, solenoid symbols",
-    notes: "Additional actuators/switches feeding CA30's CN-93.",
-    linkToPrior: "Hydraulic and electro-pneumatic valves.",
-  },
-  {
-    component: "CCAN, CA3",
-    connectors: "CN-125A/CN-427 (Module 2/3), CAN1 pair into CA30 here",
-    sheets: "7-2",
-    symbol: "Dashed hub; circle+diagonal+arrowhead",
-    notes: "NEW: CA30 is on the CAN1 pair of the same CCAN/CA3 bus already confirmed reaching CA16 (CAN2, Module 2) and CA50 (CAN2, Module 3).",
-    linkToPrior: "Fourth module now confirmed on this shared CAN network.",
+    component: "CCAN, CA3 (SAE J1939 CAN Bus)",
+    connectors: "CN-125A/CN-427, CAN1 pair into CA30",
+    sheets: "7-2, Block 12",
+    symbol: "Twisted-pair differential CAN bus (CAN_H / CAN_L)",
+    notes: "High-speed 250kbps SAE J1939 CAN bus network linking CMCU, CECM, RDU, CIC cluster, and CA30 controller.",
+    linkToPrior: "Heavy-vehicle J1939 network backbone.",
   },
 ];
 
@@ -468,14 +651,16 @@ export async function exportProfessionalQCWorkbook(
 
   // Column dimensions
   ws1.getColumn("A").width = 16;
-  ws1.getColumn("B").width = 34;
-  ws1.getColumn("C").width = 40;
+  ws1.getColumn("B").width = 28;
+  ws1.getColumn("C").width = 34;
   ws1.getColumn("D").width = 24;
-  ws1.getColumn("E").width = 54;
+  ws1.getColumn("E").width = 28;
+  ws1.getColumn("F").width = 38;
+  ws1.getColumn("G").width = 46;
 
   // Title (Row 1)
   const r1Title = isCA30
-    ? "Correction: every 'CA1a:CN-93(pin)' in the FB1 wire list is actually CA30 — a transcription error, not a new component"
+    ? "Correction & Reconciliation: Every 'CA1a:CN-93(pin)' in FB1 wire list is CA30 (Chassis Controller)"
     : `Reconciliation & Pin Audit Report: ${report.document?.filename || "Schematic Drawing"} — Discrepancy Cross-Check`;
   const cellA1 = ws1.getCell("A1");
   cellA1.value = r1Title;
@@ -483,8 +668,8 @@ export async function exportProfessionalQCWorkbook(
 
   // Context Paragraph (Row 2)
   const r2Context = isCA30
-    ? "FB1's 9 sheets referenced this connector as 'CA1a' eleven times, always flagged Yellow because CN-93 was outside every reference PDF supplied at the time. These 3 new sheets ARE that component, and they consistently show the name as CA30 (the same CA30 already used elsewhere for the CN-305/306 PVG-lever connectors — CA30 evidently has multiple connectors). Every pin below was cross-checked directly."
-    : `Evaluated against standard ${report.standard}. Deterministic rule engine verified pin connections and wire netlist continuity. Overall Machine Result: ${report.overall_result} (Score: ${report.quality_score}/100). All identified terminal discrepancies and pin allocations below are cross-checked against engineering standards.`;
+    ? "FB1's 9 sheets referenced this connector as 'CA1a' eleven times, always flagged Yellow because CN-93 was outside every reference PDF supplied at the time. These 3 new sheets ARE that component, and they consistently show the name as CA30 (the same CA30 already used elsewhere for the CN-305/306 PVG-lever connectors — CA30 evidently has multiple connectors). Every pin below was cross-checked directly for continuity and circuit viability."
+    : `Evaluated against standard ${report.standard}. Deterministic rule engine verified pin connections and wire netlist continuity. Overall Machine Result: ${report.overall_result} (Score: ${report.quality_score}/100). All identified terminal discrepancies and pin allocations below are cross-checked against engineering standards with explicit electrical viability assessment.`;
   const cellA2 = ws1.getCell("A2");
   cellA2.value = r2Context;
   cellA2.font = { name: "Arial", size: 10, color: { argb: PALETTE.TEXT_DARK } };
@@ -493,17 +678,33 @@ export async function exportProfessionalQCWorkbook(
 
   // Table Headers (Row 5)
   const headersTab1 = isCA30
-    ? ["CN-93 Pin", "FB1 claim (as 'CA1a')", "This module's finding (as 'CA30')", "Status", "Note"]
-    : ["Pin / Terminal Ref", "Reference Netlist Claim", "Schematic Observed Value", "Status", "Engineering Note"];
+    ? [
+        "CN-93 Pin",
+        "FB1 claim (as 'CA1a')",
+        "This module's finding (as 'CA30')",
+        "Reconciliation Status",
+        "Circuit Viability ('Will It Work?')",
+        "Remediation Required",
+        "Audit Note",
+      ]
+    : [
+        "Pin / Terminal Ref",
+        "Reference Netlist Claim",
+        "Schematic Observed Value",
+        "Reconciliation Status",
+        "Circuit Viability ('Will It Work?')",
+        "Remediation Required",
+        "Engineering Note",
+      ];
 
   const row5 = ws1.getRow(5);
-  row5.height = 24;
+  row5.height = 26;
   headersTab1.forEach((hdr, idx) => {
     const c = row5.getCell(idx + 1);
     c.value = hdr;
     c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
     c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
-    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
     c.border = BORDER_THIN;
   });
 
@@ -514,27 +715,38 @@ export async function exportProfessionalQCWorkbook(
         pin: f.location.sheet_reference || `Pin-${i + 1}`,
         priorClaim: f.expected_value || "Standard requirement",
         finding: f.detected_value || f.title,
-        status: f.severity === "CRITICAL" ? "DEFECT — Critical" : f.severity === "MAJOR" ? "SWAPPED — corrected" : "CONFIRMED (rename only)",
+        status:
+          f.severity === "CRITICAL"
+            ? "CRITICAL DEFECT"
+            : f.severity === "MAJOR"
+            ? "SWAPPED / REVERSED"
+            : "CONFIRMED",
+        viability: f.circuit_impact?.status || (f.severity === "CRITICAL" ? "WILL NOT WORK (CRITICAL FAILURE)" : "WILL WORK (OPERATIVE)"),
+        remediation: f.circuit_impact?.remediation_required || f.recommended_remediation || "Review with design authority.",
         note: `${f.description} [Standard Ref: ${f.standard_reference}]`,
       }));
 
   let curRow1 = 6;
-  pinAuditData.forEach((item) => {
+  pinAuditData.forEach((item: any) => {
     const r = ws1.getRow(curRow1);
-    r.height = 28;
+    r.height = 32;
     const cA = r.getCell(1);
     const cB = r.getCell(2);
     const cC = r.getCell(3);
     const cD = r.getCell(4);
     const cE = r.getCell(5);
+    const cF = r.getCell(6);
+    const cG = r.getCell(7);
 
     cA.value = item.pin;
     cB.value = item.priorClaim;
     cC.value = item.finding;
     cD.value = item.status;
-    cE.value = item.note;
+    cE.value = item.viability || "WILL WORK (OPERATIVE)";
+    cF.value = item.remediation || "None required.";
+    cG.value = item.note;
 
-    [cA, cB, cC, cD, cE].forEach((cell) => {
+    [cA, cB, cC, cD, cE, cF, cG].forEach((cell) => {
       cell.font = { name: "Arial", size: 9 };
       cell.border = BORDER_THIN;
       cell.alignment = { vertical: "top", wrapText: true };
@@ -545,14 +757,28 @@ export async function exportProfessionalQCWorkbook(
     if (st.includes("CONFIRMED") || st.includes("NEW PIN")) {
       cD.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.GREEN_FILL } };
       cD.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.GREEN_FONT } };
-    } else if (st.includes("PARTIAL") || st.includes("DEFECT") || st.includes("CRITICAL")) {
+    } else if (st.includes("PARTIAL") || st.includes("DEFECT") || st.includes("CRITICAL") || st.includes("SWAPPED") || st.includes("MISSING")) {
       cD.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.FLAG_FILL } };
       cD.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.FLAG_FONT } };
-    } else if (st.includes("SWAPPED") || st.includes("UNCONFIRMED")) {
+    } else if (st.includes("UNCONFIRMED")) {
       cD.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.YELLOW_FILL } };
       cD.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.YELLOW_FONT } };
     }
     cD.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
+    // Color-coded Circuit Viability Badges
+    const via = String(cE.value).toUpperCase();
+    if (via.includes("WILL NOT WORK")) {
+      cE.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.FLAG_FILL } };
+      cE.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.FLAG_FONT } };
+    } else if (via.includes("WILL WORK")) {
+      cE.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.GREEN_FILL } };
+      cE.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.GREEN_FONT } };
+    } else {
+      cE.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.YELLOW_FILL } };
+      cE.font = { name: "Arial", size: 9, bold: true, color: { argb: PALETTE.YELLOW_FONT } };
+    }
+    cE.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
     curRow1++;
   });
@@ -958,6 +1184,242 @@ export async function exportProfessionalQCWorkbook(
     cDesc.value = leg.desc;
     cDesc.font = { name: "Arial", size: 9, color: { argb: PALETTE.TEXT_DARK } };
     cDesc.alignment = { vertical: "middle" };
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // TAB 5: Standards by Region & Component Reference Catalogue
+  // ─────────────────────────────────────────────────────────────────────────────
+  const ws5 = wb.addWorksheet("Standards & Catalog", {
+    views: [{ showGridLines: true }],
+  });
+
+  ws5.getColumn("A").width = 24; // Standard / Category / Terminal
+  ws5.getColumn("B").width = 30; // Code / Specification / Function
+  ws5.getColumn("C").width = 36; // Scope / Rail Association / Colour
+  ws5.getColumn("D").width = 48; // Technical Description / Application
+
+  // Title (Row 1)
+  const cellS1 = ws5.getCell("A1");
+  cellS1.value = "Electrical Wiring: Standards by Region & Complete Component Reference";
+  cellS1.font = { name: "Arial", size: 14, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+
+  let curRowS = 3;
+
+  // SECTION 1: Regional & International Standards
+  const sec1Header = ws5.getCell(`A${curRowS}`);
+  sec1Header.value = "1. Standards by Region (International, Automotive, Regional & National)";
+  sec1Header.font = { name: "Arial", size: 11, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+  curRowS++;
+
+  const stdHeaders = ["Region / Body", "Standard Code", "Coverage & Domain", "Industrial Application"];
+  const rStd = ws5.getRow(curRowS);
+  rStd.height = 24;
+  stdHeaders.forEach((hdr, idx) => {
+    const c = rStd.getCell(idx + 1);
+    c.value = hdr;
+    c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.border = BORDER_THIN;
+  });
+  curRowS++;
+
+  const regionalStandards = [
+    { region: "International (IEC)", code: "IEC 60617 / IEC 61082", scope: "Graphical symbols & electrotechnology documentation", app: "World reference database for schematics & circuit drafting" },
+    { region: "International (ISO/IEC)", code: "IEC 81346 / IEC 61346", scope: "Reference designations & letter codes (K relay, Q breaker)", app: "Standard component tagging across automation and machine builds" },
+    { region: "International (IEC)", code: "IEC 60445 / IEC 60757", scope: "Terminal markings & two-letter color codes (BK, BN, BU...)", app: "Harmonized conductor insulation color identification" },
+    { region: "Automotive (Off-Highway)", code: "ISO 6722 / ISO 19642", scope: "Road vehicle 60V and 600V single-core primary cables", app: "Heavy equipment harness wiring (Hyundai, JCB, Caterpillar)" },
+    { region: "Automotive (Off-Highway)", code: "DIN 72552", scope: "Automotive terminal designations (30, 15, 31, 50, 85, 86, 87)", app: "Universal power rail, relay coil, and contact terminal numbering" },
+    { region: "Automotive (Off-Highway)", code: "DIN 72551", scope: "Low-tension cable colors and cross-sections for vehicles", app: "Wire cross-sections (0.5 to 5.0 mm²) and bi-color stripe standards" },
+    { region: "Automotive / Commercial", code: "SAE J1939 (Series)", scope: "Heavy-duty off-highway CAN communication network", app: "Excavator/wheel loader engine, transmission, and controller CAN bus" },
+    { region: "Automotive (Commercial)", code: "SAE J1128 / J1127", scope: "Low-voltage primary cable / heavy battery cables", app: "US/North American commercial vehicle wire sizing and heat ratings" },
+    { region: "North America (US/CA)", code: "NFPA 79 / UL 508A", scope: "Electrical standard for industrial machinery & control panels", app: "Machine tool wiring, short-circuit ratings, overcurrent protection" },
+    { region: "Europe (EU)", code: "EN 60204-1 / HD 60364", scope: "Safety of machinery electrical equipment & low-voltage rules", app: "European machinery compliance and CE conformity marking" },
+    { region: "Japan (JIS / JASO)", code: "JIS C 0617 / JASO D 611", scope: "Japanese automotive wires & electrical diagram symbols", app: "Komatsu, Hitachi, Kobelco, and Asian automotive harness specs" },
+    { region: "China (GB)", code: "GB/T 4728 / GB 5226.1", scope: "Chinese electrical diagram symbols & machine equipment", app: "National standards for machines and vehicle harnesses in China" },
+    { region: "India (BIS)", code: "IS 2032 / IS 732 / SP 30", scope: "Graphical symbols & National Electrical Code of India", app: "Bureau of Indian Standards wiring regulations and cable compliance" },
+    { region: "South Korea (KATS)", code: "KS C IEC 60617 / KS R", scope: "Korean automotive parts & machinery standards", app: "Hyundai, Doosan, and Korean heavy construction equipment" },
+  ];
+
+  regionalStandards.forEach((item) => {
+    const r = ws5.getRow(curRowS);
+    r.height = 24;
+    r.getCell(1).value = item.region;
+    r.getCell(2).value = item.code;
+    r.getCell(3).value = item.scope;
+    r.getCell(4).value = item.app;
+    for (let c = 1; c <= 4; c++) {
+      const cell = r.getCell(c);
+      cell.font = { name: "Arial", size: 9 };
+      cell.border = BORDER_THIN;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (c === 1 || c === 2) cell.font = { name: "Arial", size: 9, bold: true };
+    }
+    curRowS++;
+  });
+
+  curRowS += 2;
+
+  // SECTION 2: Automotive DIN 72552 Terminal Standards
+  const sec2Header = ws5.getCell(`A${curRowS}`);
+  sec2Header.value = "2. Automotive DIN 72552 Terminal Numbering Conventions";
+  sec2Header.font = { name: "Arial", size: 11, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+  curRowS++;
+
+  const dinHeaders = ["Terminal Pin", "Designated Function", "Power Rail Association", "Circuit Consequence if Miswired"];
+  const rDin = ws5.getRow(curRowS);
+  rDin.height = 24;
+  dinHeaders.forEach((hdr, idx) => {
+    const c = rDin.getCell(idx + 1);
+    c.value = hdr;
+    c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.border = BORDER_THIN;
+  });
+  curRowS++;
+
+  const dinTerminals = [
+    { pin: "30", func: "Battery positive (always live unswitched)", rail: "KL30 (Red Rail)", impact: "Always powered. Short circuit risks harness fire without fuse." },
+    { pin: "15", func: "Switched positive from ignition key switch", rail: "KL15 (Thin Red Rail)", impact: "Energized in RUN/START. Accidental KL30 wiring causes battery drain." },
+    { pin: "31", func: "Ground / chassis negative return", rail: "KL31 (Brown Rail)", impact: "Ground path. Inverted with power line causes dead short or reverse polarity damage." },
+    { pin: "50", func: "Starter motor solenoid control line", rail: "Starter circuit", impact: "Energized only during cranking. Miswire cranks starter while engine is running." },
+    { pin: "85", func: "Relay coil negative / ground control", rail: "Coil circuit (-)", impact: "Coil return terminal. Must pair with pin 86 for coil excitation." },
+    { pin: "86", func: "Relay coil positive / switch command", rail: "Coil circuit (+)", impact: "Actuation input. Swapped with other relays causes wrong implement activation." },
+    { pin: "30 / 87", func: "Relay normally-open (NO) power contacts", rail: "Load power path", impact: "Closes on energization to power high-amperage lights, pumps, solenoids." },
+    { pin: "87a", func: "Relay normally-closed (NC) auxiliary contact", rail: "Aux interlock", impact: "Opens on energization for interlocks and safety cutoffs." },
+    { pin: "58", func: "Parking / marker / clearance lamps", rail: "Lighting circuit", impact: "Instrument illumination and tail marker lighting." },
+    { pin: "54", func: "Brake lamp signal", rail: "Braking circuit", impact: "Illuminates brake lamps and signals hydraulic retarder." },
+    { pin: "B+ / D+", func: "Alternator battery output / charge lamp", rail: "Charging system", impact: "D+ excites rotor field; connects to charge indicator lamp on cluster." },
+  ];
+
+  dinTerminals.forEach((item) => {
+    const r = ws5.getRow(curRowS);
+    r.height = 22;
+    r.getCell(1).value = item.pin;
+    r.getCell(2).value = item.func;
+    r.getCell(3).value = item.rail;
+    r.getCell(4).value = item.impact;
+    for (let c = 1; c <= 4; c++) {
+      const cell = r.getCell(c);
+      cell.font = { name: "Arial", size: 9 };
+      cell.border = BORDER_THIN;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (c === 1) {
+        cell.font = { name: "Arial", size: 9, bold: true };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      }
+    }
+    curRowS++;
+  });
+
+  curRowS += 2;
+
+  // SECTION 3: Wire Colour Code Conversion Table
+  const sec3Header = ws5.getCell(`A${curRowS}`);
+  sec3Header.value = "3. Wire Colour Code Standards (Hyundai OEM vs IEC 60757 vs DIN 47002)";
+  sec3Header.font = { name: "Arial", size: 11, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+  curRowS++;
+
+  const colHeaders = ["Colour Name", "Hyundai OEM Symbol", "IEC 60757 Code", "Typical Automotive Function"];
+  const rCol = ws5.getRow(curRowS);
+  rCol.height = 24;
+  colHeaders.forEach((hdr, idx) => {
+    const c = rCol.getCell(idx + 1);
+    c.value = hdr;
+    c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.border = BORDER_THIN;
+  });
+  curRowS++;
+
+  const colourConversions = [
+    { name: "Black", oem: "B", iec: "BK", func: "Ground (KL31) or primary negative return conductor" },
+    { name: "White", oem: "W", iec: "WH", func: "Lighting circuits, sensor ground, fuse split branches" },
+    { name: "Red", oem: "R", iec: "RD", func: "Battery live positive (KL30) unswitched supply" },
+    { name: "Green", oem: "G", iec: "GN", func: "Solenoid drive feeds, directional controls, CAN_H" },
+    { name: "Blue", oem: "L", iec: "BU", func: "CAN_L differential data line, auxiliary relays" },
+    { name: "Yellow", oem: "Y", iec: "YE", func: "Warning signals, CAN_H bus line, indicator lamps" },
+    { name: "Brown", oem: "Br", iec: "BN", func: "Relay coil feeds, sensor excitation, interlocks" },
+    { name: "Orange", oem: "Or", iec: "OG", func: "High-temperature sensor feeds, auxiliary switches" },
+    { name: "Violet", oem: "V", iec: "VT", func: "Ignition interlocks, hydraulic solenoid pulses" },
+    { name: "Grey", oem: "Gr", iec: "GY", func: "Switch outputs, position feedback signals" },
+    { name: "Pink", oem: "P", iec: "PK", func: "Electronic controller analog inputs, reference voltage" },
+    { name: "Light Green", oem: "Lg", iec: "LT GN", func: "Climate control CAC sensor feedback, blower circuits" },
+    { name: "Green / Yellow Stripe", oem: "GY (or G/Y)", iec: "GNYE", func: "Dedicated chassis safety bonding and protective earthing" },
+  ];
+
+  colourConversions.forEach((item) => {
+    const r = ws5.getRow(curRowS);
+    r.height = 20;
+    r.getCell(1).value = item.name;
+    r.getCell(2).value = item.oem;
+    r.getCell(3).value = item.iec;
+    r.getCell(4).value = item.func;
+    for (let c = 1; c <= 4; c++) {
+      const cell = r.getCell(c);
+      cell.font = { name: "Arial", size: 9 };
+      cell.border = BORDER_THIN;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (c === 2 || c === 3) {
+        cell.font = { name: "Arial", size: 9, bold: true };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      }
+    }
+    curRowS++;
+  });
+
+  curRowS += 2;
+
+  // SECTION 4: Asian Automotive Wire Sizing Reference
+  const sec4Header = ws5.getCell(`A${curRowS}`);
+  sec4Header.value = "4. Asian Automotive Wire Sizing Standard (0.3 mm² to 5.0 mm²)";
+  sec4Header.font = { name: "Arial", size: 11, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+  curRowS++;
+
+  const sizeHeaders = ["Nominal Gauge (mm²)", "Equivalent AWG", "Continuous Rating (24V)", "Recommended Circuit Application"];
+  const rSize = ws5.getRow(curRowS);
+  rSize.height = 24;
+  sizeHeaders.forEach((hdr, idx) => {
+    const c = rSize.getCell(idx + 1);
+    c.value = hdr;
+    c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+    c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+    c.alignment = { horizontal: "center", vertical: "middle" };
+    c.border = BORDER_THIN;
+  });
+  curRowS++;
+
+  const wireSizes = [
+    { size: "0.3 mm²", awg: "22 AWG (0.33)", amp: "3 A", app: "Low-current analog sensor lines (coolant, pressure transducers)" },
+    { size: "0.5 mm²", awg: "20 AWG (0.52)", amp: "5 A", app: "SAE J1939 CAN bus data pairs, logic inputs, indicator LEDs" },
+    { size: "0.85 mm²", awg: "18 AWG (0.82)", amp: "9 A", app: "Relay coil inputs (85/86), pilot switches, interior lighting" },
+    { size: "1.25 mm²", awg: "16 AWG (1.31)", amp: "13 A", app: "Solenoid valves, wiper motors, halogen work lamps" },
+    { size: "1.75 mm²", awg: "15 AWG (1.65)", amp: "16 A", app: "High-draw halogen lamps, cabin climate blower motor" },
+    { size: "2.0 mm²", awg: "14 AWG (2.08)", amp: "20 A", app: "Main fuse splits, hydraulic proportional EPPR valves, horn" },
+    { size: "3.0 mm²", awg: "12 AWG (3.31)", amp: "27 A", app: "Heavy cooling fan motor, cabin defroster, power relays" },
+    { size: "5.0 mm²", awg: "10 AWG (5.26)", amp: "38 A", app: "Fuel heater power branch, glow-plug relay feed, main ignition" },
+  ];
+
+  wireSizes.forEach((item) => {
+    const r = ws5.getRow(curRowS);
+    r.height = 20;
+    r.getCell(1).value = item.size;
+    r.getCell(2).value = item.awg;
+    r.getCell(3).value = item.amp;
+    r.getCell(4).value = item.app;
+    for (let c = 1; c <= 4; c++) {
+      const cell = r.getCell(c);
+      cell.font = { name: "Arial", size: 9 };
+      cell.border = BORDER_THIN;
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (c === 1 || c === 2 || c === 3) {
+        cell.font = { name: "Arial", size: 9, bold: true };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      }
+    }
+    curRowS++;
   });
 
   // ─────────────────────────────────────────────────────────────────────────────

@@ -13,8 +13,17 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-# Derived from the 31 reference sheets (not invented). Extend via configuration when new codes appear.
-BASE_COLOURS = frozenset({"BK", "WH", "RD", "GN", "BU", "YE", "OG", "BN", "GY", "VT", "PK"})
+# Derived from the reference sheets & Electrical Wiring Standards Catalogue.
+BASE_COLOURS = frozenset({
+    "BK", "WH", "RD", "GN", "BU", "YE", "OG", "BN", "GY", "VT", "PK", "TQ", "GNYE",
+    # Hyundai OEM single/bi-letter symbols
+    "B", "W", "R", "G", "L", "Y", "BR", "OR", "V", "GR", "P", "LG"
+})
+
+HYUNDAI_TO_IEC_COLOURS = {
+    "B": "BK", "W": "WH", "R": "RD", "G": "GN", "L": "BU", "Y": "YE",
+    "BR": "BN", "OR": "OG", "V": "VT", "GR": "GY", "P": "PK", "LG": "LT GN"
+}
 
 _LABEL_RE = re.compile(
     r"^\s*(?:(?P<no>[A-Z]?\d{1,4}[A-Z]?)\s+)?(?P<col>[A-Z]{2}(?:/[A-Z]{2})?)(?:\s+(?P<size>\d+(?:\.\d+)?))?\s*$"
