@@ -48,6 +48,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: F1 (30A) -> same bus split -> CA30 pin1",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-2, Fuse Box F1 (30A) bus split -> CA30 pin 1",
+    redrawNodeRef: "Sheet FB1-1, Fuse Box F1 (30A) bus split -> CA1a:CN-93(1)",
+    rootCause: "Continuous power bus branch conforming. Discrepancy is nomenclature only (CA1a vs CA30).",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match, correct polarity.",
   },
@@ -57,6 +60,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: CA30 pin25",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-2, F1 bus split -> CA30 pin 25",
+    redrawNodeRef: "Sheet FB1-1, F1 bus split -> CA1a:CN-93(25)",
+    rootCause: "Continuous power bus branch conforming. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
@@ -66,6 +72,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: CA30 pin26",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-2, F1 bus split -> CA30 pin 26",
+    redrawNodeRef: "Sheet FB1-1, F1 bus split -> CA1a:CN-93(26)",
+    rootCause: "Continuous power bus branch conforming. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
@@ -75,6 +84,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: CA30 pin27",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-2, F1 bus split -> CA30 pin 27",
+    redrawNodeRef: "Sheet FB1-1, F1 bus split -> CA1a:CN-93(27)",
+    rootCause: "Continuous power bus branch conforming. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
@@ -84,6 +96,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: F1's bus split has a 5th branch, CA30 pin28",
     status: "MISSING PIN IN REDRAW",
     viability: "WILL NOT WORK (PIN 28 UNPOWERED)",
+    oemNodeRef: "Sheet 7-2, F1 (30A) 5th bus branch -> CA30 pin 28",
+    redrawNodeRef: "Sheet FB1-1, F1 bus split (pin 28 omitted from drawing)",
+    rootCause: "5th bus branch was omitted during CAD transcription. CA30 pin 28 unpowered.",
     remediation: "Connect 5th branch conductor from F1 30A fuse terminal to CA30 pin 28.",
     note: "FB1-1 only caught 4 of F1's 5 branches — add this one to FB1's own wire list.",
   },
@@ -93,6 +108,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-3: CK37 pin87 -> N9303 -> CA30 pin3",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-3, CK37 relay pin 87 -> N9303 -> CA30 pin 3",
+    redrawNodeRef: "Sheet FB1-2, CK37 relay -> N9303 -> CA1a:CN-93(3)",
+    rootCause: "Conforming interlock circuit. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match, same wire-id.",
   },
@@ -102,6 +120,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-3: CR7->38, CR8->39, CR9->40 (wires N9338/N9339/N9340)",
     status: "CRITICAL FAILURE — CR7/CR9 SWAPPED",
     viability: "WILL NOT WORK (COIL SWAP)",
+    oemNodeRef: "Sheet 7-3, CN-93 pin 38 (wire N9338 / CR7) & pin 40 (wire N9340 / CR9)",
+    redrawNodeRef: "Sheet FB1-2, CN-93 pin 38 (wire N9338 / CR9) & pin 40 (wire N9340 / CR7)",
+    rootCause: "CR7 and CR9 physical relay coils transposed on connector plug. Activates wrong hydraulic/lighting circuit.",
     remediation: "Swap harness wires on CN-93 pin 38 and pin 40. Prevents hydraulic implement 9 moving when control switch 7 is pressed.",
     note: "Pin numbers 38/39/40 and their wire-ids are consistent between sessions; physical relay coils CR7 and CR9 are transposed.",
   },
@@ -111,6 +132,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-2: CK36 pin1 -> N9307 -> CA30 pin7",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-2, CK36 pin 1 -> N9307 -> CA30 pin 7",
+    redrawNodeRef: "Sheet FB1-7, CK36 pin 1 -> N9307 -> CA1a:CN-93(7)",
+    rootCause: "Relay energize feed conforming. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Exact match.",
   },
@@ -120,6 +144,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-1: wire N9383 arrives at CA30 pin83 from off-sheet",
     status: "CONFIRMED (rename only)",
     viability: "WILL WORK (OPERATIVE)",
+    oemNodeRef: "Sheet 7-1, wire N9383 from CK25 off-sheet arrival -> CA30 pin 83",
+    redrawNodeRef: "Sheet FB1-7, CK25 relay -> wire N9383",
+    rootCause: "Off-sheet relay wire arrival verified conforming. Rename CA1a -> CA30.",
     remediation: "Continuous circuit; update label CA1a -> CA30.",
     note: "Consistent — CK25 itself is fully drawn on FB1-7; this sheet just shows the wire's other end.",
   },
@@ -129,6 +156,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "7-1: CK49->N9375->pin75, CK25->N9376->pin76",
     status: "CRITICAL FAILURE — REVERSED PINOUT",
     viability: "WILL NOT WORK (INVERTED POLARITY)",
+    oemNodeRef: "Sheet 7-1, CN-93 pin 75 (CK49 -> N9375) & pin 76 (CK25 -> N9376)",
+    redrawNodeRef: "Sheet FB1-5, CN-93 pin 75 (N9376) & pin 76 (N9375)",
+    rootCause: "Reversed directional valve feedback conductor pairing. Solenoid polarity inverted.",
     remediation: "Swap pin 75 and 76 socket terminals in CN-93 connector plug. Resolves inverted directional valve polarity.",
     note: "FB1-5's original pairing was backwards. Master OEM proves N9375->75 and N9376->76.",
   },
@@ -138,6 +168,9 @@ const CA30_GOLDEN_PIN_AUDIT = [
     finding: "Not found on any of sheets 7-1/7-2/7-3",
     status: "STILL UNCONFIRMED",
     viability: "MANUAL REVIEW REQUIRED",
+    oemNodeRef: "Master OEM drawing: F12 (5A) power distribution branch",
+    redrawNodeRef: "Sheet FB1-8, F12 (5A) -> CN-4:13 -> CS35(1)",
+    rootCause: "Off-sheet boundary destination unconfirmed on available sheets. Pending sheet 7-4.",
     remediation: "Provide sheet 7-4 or confirm off-sheet destination with design authority.",
     note: "This specific pin didn't appear in the 3 sheets provided this session — would need a 4th sheet if one exists.",
   },
@@ -649,14 +682,17 @@ export async function exportProfessionalQCWorkbook(
     views: [{ showGridLines: true }],
   });
 
-  // Column dimensions
+  // Column dimensions (10 columns with complete Root Cause & Node Ref grounding)
   ws1.getColumn("A").width = 16;
-  ws1.getColumn("B").width = 28;
-  ws1.getColumn("C").width = 34;
-  ws1.getColumn("D").width = 24;
+  ws1.getColumn("B").width = 26;
+  ws1.getColumn("C").width = 26;
+  ws1.getColumn("D").width = 22;
   ws1.getColumn("E").width = 28;
-  ws1.getColumn("F").width = 38;
-  ws1.getColumn("G").width = 46;
+  ws1.getColumn("F").width = 34;
+  ws1.getColumn("G").width = 34;
+  ws1.getColumn("H").width = 38;
+  ws1.getColumn("I").width = 36;
+  ws1.getColumn("J").width = 44;
 
   // Title (Row 1)
   const r1Title = isCA30
@@ -684,8 +720,11 @@ export async function exportProfessionalQCWorkbook(
         "This module's finding (as 'CA30')",
         "Reconciliation Status",
         "Circuit Viability ('Will It Work?')",
+        "OEM Node Reference",
+        "Redraw Node Reference",
+        "Root Cause Origin",
         "Remediation Required",
-        "Audit Note",
+        "Future Hazard & Audit Note",
       ]
     : [
         "Pin / Terminal Ref",
@@ -693,8 +732,11 @@ export async function exportProfessionalQCWorkbook(
         "Schematic Observed Value",
         "Reconciliation Status",
         "Circuit Viability ('Will It Work?')",
+        "OEM Node Reference",
+        "Redraw Node Reference",
+        "Root Cause Origin",
         "Remediation Required",
-        "Engineering Note",
+        "Future Hazard & Engineering Note",
       ];
 
   const row5 = ws1.getRow(5);
@@ -712,7 +754,7 @@ export async function exportProfessionalQCWorkbook(
   const pinAuditData = isCA30
     ? CA30_GOLDEN_PIN_AUDIT
     : (report.findings || []).map((f, i) => ({
-        pin: f.location.sheet_reference || `Pin-${i + 1}`,
+        pin: f.location?.sheet_reference || f.node_reference_oem || `Pin-${i + 1}`,
         priorClaim: f.expected_value || "Standard requirement",
         finding: f.detected_value || f.title,
         status:
@@ -722,14 +764,17 @@ export async function exportProfessionalQCWorkbook(
             ? "SWAPPED / REVERSED"
             : "CONFIRMED",
         viability: f.circuit_impact?.status || (f.severity === "CRITICAL" ? "WILL NOT WORK (CRITICAL FAILURE)" : "WILL WORK (OPERATIVE)"),
+        oemNodeRef: f.node_reference_oem || f.expected_value || "OEM Master",
+        redrawNodeRef: f.node_reference_redraw || f.detected_value || "Delivery Output",
+        rootCause: f.root_cause || f.description || "N/A",
         remediation: f.circuit_impact?.remediation_required || f.recommended_remediation || "Review with design authority.",
-        note: `${f.description} [Standard Ref: ${f.standard_reference}]`,
+        note: f.future_problem || `${f.description} [Standard Ref: ${f.standard_reference}]`,
       }));
 
   let curRow1 = 6;
   pinAuditData.forEach((item: any) => {
     const r = ws1.getRow(curRow1);
-    r.height = 32;
+    r.height = 34;
     const cA = r.getCell(1);
     const cB = r.getCell(2);
     const cC = r.getCell(3);
@@ -737,16 +782,22 @@ export async function exportProfessionalQCWorkbook(
     const cE = r.getCell(5);
     const cF = r.getCell(6);
     const cG = r.getCell(7);
+    const cH = r.getCell(8);
+    const cI = r.getCell(9);
+    const cJ = r.getCell(10);
 
     cA.value = item.pin;
     cB.value = item.priorClaim;
     cC.value = item.finding;
     cD.value = item.status;
     cE.value = item.viability || "WILL WORK (OPERATIVE)";
-    cF.value = item.remediation || "None required.";
-    cG.value = item.note;
+    cF.value = item.oemNodeRef || "-";
+    cG.value = item.redrawNodeRef || "-";
+    cH.value = item.rootCause || "-";
+    cI.value = item.remediation || "None required.";
+    cJ.value = item.note || "-";
 
-    [cA, cB, cC, cD, cE, cF, cG].forEach((cell) => {
+    [cA, cB, cC, cD, cE, cF, cG, cH, cI, cJ].forEach((cell) => {
       cell.font = { name: "Arial", size: 9 };
       cell.border = BORDER_THIN;
       cell.alignment = { vertical: "top", wrapText: true };
@@ -842,11 +893,9 @@ export async function exportProfessionalQCWorkbook(
   cellW2.alignment = { wrapText: true, vertical: "top" };
   ws2.getRow(2).height = 28;
 
-  // Compile Wire Records
+  // Compile Wire Records: Prioritize live extracted observations from uploaded drawings
   let wireRows: any[] = [];
-  if (isCA30) {
-    wireRows = CA30_GOLDEN_WIRES;
-  } else if (extraObservations && extraObservations.length > 0) {
+  if (extraObservations && extraObservations.length > 0) {
     wireRows = extraObservations.map((obs, idx) => ({
       seq: `G${String(idx + 1).padStart(2, "0")}`,
       sheet: String(obs.page_number || obs.page || 1),
@@ -867,6 +916,8 @@ export async function exportProfessionalQCWorkbook(
       conf: (obs.confidence || 0.95) >= 0.9 ? "High" : "Medium",
       notes: `${obs.circuit_status ? `[${obs.circuit_status}] ` : obs.will_work === false ? "[WILL NOT WORK (CRITICAL FAILURE)] " : obs.will_work === true ? "[WILL WORK (OPERATIVE)] " : ""}${obs.circuit_notes ? obs.circuit_notes + " — " : ""}${obs.evidence_text || obs.evidence || `Observation verified with ${(obs.confidence ? obs.confidence * 100 : 95).toFixed(0)}% confidence.`}`,
     }));
+  } else if (isCA30) {
+    wireRows = CA30_GOLDEN_WIRES;
   } else {
     // Build from findings
     wireRows = (report.findings || []).map((f, idx) => ({

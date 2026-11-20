@@ -170,6 +170,11 @@ export interface QCFinding {
   reviewer_comment?: string | null;
   reviewed_at?: string | null;
   recommended_remediation?: string;
+  root_cause?: string | null;
+  node_reference_oem?: string | null;
+  node_reference_redraw?: string | null;
+  future_problem?: string | null;
+  remediation_required?: string | null;
   circuit_impact?: {
     status: string;
     will_work: boolean;

@@ -27,6 +27,7 @@ import {
   Eye,
   Info,
   Cpu,
+  Wrench,
 } from "lucide-react";
 import { QCFinding, QCRun } from "@/types";
 import {
@@ -158,6 +159,11 @@ export default function QCReportDetailPage({
               expected_value: f.expected_value || "Per standard manual specification",
               detected_value: f.detected_value || f.location || "Detected discrepancy on diagram",
               circuit_impact: f.circuit_impact || null,
+              root_cause: f.root_cause || null,
+              node_reference_oem: f.node_reference_oem || null,
+              node_reference_redraw: f.node_reference_redraw || null,
+              future_problem: f.future_problem || null,
+              recommended_remediation: f.remediation_required || f.recommended_remediation || f.circuit_impact?.remediation_required || undefined,
               location: {
                 page: f.page_number || 1,
                 zone: f.location || "Schematic",
@@ -729,6 +735,59 @@ export default function QCReportDetailPage({
                     </span>
                   </div>
                 </div>
+
+                {/* Node References: OEM Master vs Redrawn Delivery Output */}
+                {(selectedFinding.node_reference_oem || selectedFinding.node_reference_redraw) && (
+                  <div className="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 font-mono block">
+                      SCHEMATIC NODE REFERENCES
+                    </span>
+                    <div className="grid grid-cols-1 gap-2 text-xs">
+                      {selectedFinding.node_reference_oem && (
+                        <div className="p-2 rounded bg-slate-950/60 border border-emerald-500/30">
+                          <span className="text-[10px] font-bold text-emerald-400 block font-mono">
+                            OEM MASTER REFERENCE:
+                          </span>
+                          <span className="text-slate-200 font-mono text-[11px]">
+                            {selectedFinding.node_reference_oem}
+                          </span>
+                        </div>
+                      )}
+                      {selectedFinding.node_reference_redraw && (
+                        <div className="p-2 rounded bg-slate-950/60 border border-amber-500/30">
+                          <span className="text-[10px] font-bold text-amber-400 block font-mono">
+                            REDRAWN DELIVERY REFERENCE:
+                          </span>
+                          <span className="text-slate-200 font-mono text-[11px]">
+                            {selectedFinding.node_reference_redraw}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Root Cause Analysis & Future Problem */}
+                {(selectedFinding.root_cause || selectedFinding.future_problem) && (
+                  <div className="p-3.5 rounded-xl bg-slate-900/90 border border-amber-500/30 space-y-2.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                      ROOT CAUSE & RISK ANALYSIS
+                    </span>
+                    {selectedFinding.root_cause && (
+                      <div className="text-xs text-slate-200">
+                        <span className="font-bold text-amber-300">Root Cause Origin: </span>
+                        {selectedFinding.root_cause}
+                      </div>
+                    )}
+                    {selectedFinding.future_problem && (
+                      <div className="text-xs text-rose-200">
+                        <span className="font-bold text-rose-300">Future Operational Impact: </span>
+                        {selectedFinding.future_problem}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Circuit Viability Impact & Safety Consequence */}
                 {selectedFinding.circuit_impact && (

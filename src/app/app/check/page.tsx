@@ -345,23 +345,37 @@ export default function CheckWorkflowPage() {
         }
 
         const textEntries = entries.filter((n) => /\.(svg|xml|txt|json|csv)$/i.test(n));
-        for (let i = 0; i < Math.min(45, textEntries.length); i++) {
+        for (let i = 0; i < Math.min(60, textEntries.length); i++) {
           try {
             const entryName = textEntries[i];
+            const sheetLabel = (entryName.split("/").pop() || entryName).replace(/\.svg$/i, "");
             const content = await zip.files[entryName].async("text");
-            const tagMatches = content.match(/>([^<]+)</g);
-            if (tagMatches) {
-              for (const tm of tagMatches) {
-                const cleaned = tm.replace(/[><]/g, "").trim();
-                if (cleaned.length >= 2 && cleaned.length <= 80) {
-                  collectedTextLines.add(cleaned);
+
+            // --- Structured tspan extraction (Vecta/Electra SVG format) ---
+            // Collect all <tspan>...</tspan> text exactly as printed on the sheet
+            const tspanMatches = content.match(/<tspan[^>]*>([^<]+)<\/tspan>/g);
+            if (tspanMatches) {
+              for (const tm of tspanMatches) {
+                const cleaned = tm.replace(/<tspan[^>]*>/, "").replace(/<\/tspan>/, "").trim();
+                // Keep wire labels (e.g. "122A WH 1.5"), component xrefs (e.g. "CECM:CN-93(4)"),
+                // rail labels (KL30, KL31), pin nums, fuse IDs, connector IDs
+                if (cleaned.length >= 2 && cleaned.length <= 80 && /[A-Za-z0-9]/.test(cleaned)) {
+                  // Prefix with sheet name so engine can attribute findings to correct sheet
+                  collectedTextLines.add(`[${sheetLabel}] ${cleaned}`);
                 }
               }
             }
-            const tokenMatches = content.match(/[A-Za-z0-9/_-]{2,30}/g);
-            if (tokenMatches) {
-              for (const tok of tokenMatches.slice(0, 60)) {
-                if (tok.length >= 2) collectedTextLines.add(tok);
+
+            // Fallback: plain inner-tag text for non-tspan SVGs
+            if (!tspanMatches || tspanMatches.length === 0) {
+              const tagMatches = content.match(/>([^<]+)</g);
+              if (tagMatches) {
+                for (const tm of tagMatches) {
+                  const cleaned = tm.replace(/[><]/g, "").trim();
+                  if (cleaned.length >= 2 && cleaned.length <= 80) {
+                    collectedTextLines.add(`[${sheetLabel}] ${cleaned}`);
+                  }
+                }
               }
             }
           } catch (e) {
@@ -373,12 +387,23 @@ export default function CheckWorkflowPage() {
         collectedTextLines.add(file.name);
         try {
           const text = await file.text();
-          const tagMatches = text.match(/>([^<]+)</g);
-          if (tagMatches) {
-            for (const tm of tagMatches) {
-              const cleaned = tm.replace(/[><]/g, "").trim();
-              if (cleaned.length >= 2 && cleaned.length <= 80) {
-                collectedTextLines.add(cleaned);
+          const sheetLabel = file.name.replace(/\.svg$/i, "");
+          const tspanMatches = text.match(/<tspan[^>]*>([^<]+)<\/tspan>/g);
+          if (tspanMatches) {
+            for (const tm of tspanMatches) {
+              const cleaned = tm.replace(/<tspan[^>]*>/, "").replace(/<\/tspan>/, "").trim();
+              if (cleaned.length >= 2 && cleaned.length <= 80 && /[A-Za-z0-9]/.test(cleaned)) {
+                collectedTextLines.add(`[${sheetLabel}] ${cleaned}`);
+              }
+            }
+          } else {
+            const tagMatches = text.match(/>([^<]+)</g);
+            if (tagMatches) {
+              for (const tm of tagMatches) {
+                const cleaned = tm.replace(/[><]/g, "").trim();
+                if (cleaned.length >= 2 && cleaned.length <= 80) {
+                  collectedTextLines.add(`[${sheetLabel}] ${cleaned}`);
+                }
               }
             }
           }
@@ -394,7 +419,7 @@ export default function CheckWorkflowPage() {
         outputFilename: file.name,
         sheetCount,
         sheetNames: detectedSheets.slice(0, 100),
-        extractedLines: Array.from(collectedTextLines).slice(0, 500),
+        extractedLines: Array.from(collectedTextLines).slice(0, 3000),
       };
       setOutputManifest(manifest);
 

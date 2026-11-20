@@ -36,6 +36,11 @@ export interface RuleFinding {
   human_decision?: string | null;
   human_comment?: string | null;
   circuit_impact?: CircuitViabilityImpact | null;
+  root_cause?: string | null;
+  node_reference_oem?: string | null;
+  node_reference_redraw?: string | null;
+  future_problem?: string | null;
+  remediation_required?: string | null;
 }
 
 export interface CandidateObservation {
