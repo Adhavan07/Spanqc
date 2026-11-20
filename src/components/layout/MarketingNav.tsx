@@ -124,16 +124,6 @@ export function MarketingNav() {
           </Link>
 
           <Link
-            href="/pricing"
-            className={clsx(
-              "transition-colors",
-              pathname === "/pricing" ? "text-cyan-400" : "text-slate-300 hover:text-white"
-            )}
-          >
-            Pricing
-          </Link>
-
-          <Link
             href="/security"
             className={clsx(
               "transition-colors",
@@ -195,13 +185,6 @@ export function MarketingNav() {
             className="block text-sm font-semibold uppercase tracking-wider py-1.5 text-slate-300 hover:text-white"
           >
             Standards
-          </Link>
-          <Link
-            href="/pricing"
-            onClick={() => setMobileMenuOpen(false)}
-            className="block text-sm font-semibold uppercase tracking-wider py-1.5 text-slate-300 hover:text-white"
-          >
-            Pricing
           </Link>
           <Link
             href="/security"

@@ -13,7 +13,6 @@ import {
   History,
   BookOpenCheck,
   Gauge,
-  CreditCard,
   Users,
   Settings,
   ChevronLeft,
@@ -39,7 +38,6 @@ export function AppSidebar() {
 
   const adminNavItems = [
     { label: "Usage", href: "/app/usage", icon: Gauge },
-    { label: "Billing", href: "/app/billing", icon: CreditCard },
     { label: "Team", href: "/app/team", icon: Users },
     { label: "Settings", href: "/app/settings", icon: Settings },
   ];

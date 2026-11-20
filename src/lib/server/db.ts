@@ -10,6 +10,6 @@ export const db =
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = db;
-}
+// Always preserve single client instance across serverless warm requests
+globalForPrisma.prisma = db;
+

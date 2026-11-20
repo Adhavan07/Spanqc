@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { MasterPasswordVaultModal } from "./MasterPasswordVaultModal";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -67,8 +66,6 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   const { setAuthSession } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pendingVaultUser, setPendingVaultUser] = useState<{ email?: string } | null>(null);
-  const [showVaultModal, setShowVaultModal] = useState(false);
 
   // Fallback modal state when native Google prompt is not active
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -80,7 +77,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
 
   const clientId =
     process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-    "1084209581920-placeholder.apps.googleusercontent.com";
+    "484989055452-9uglf7ac93sib0jkccus8i5naumhmh92.apps.googleusercontent.com";
 
   const handleCredentialResponse = useCallback(
     async (response: { credential?: string }) => {
@@ -116,15 +113,9 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
           setAuthSession(data.user, data.organization);
         }
 
-        // Check Zero-Knowledge security requirement:
-        // Even after Google login, Master Password is required to decrypt the vault locally!
-        if (data.security?.requires_master_password_vault_unlock) {
-          setPendingVaultUser({ email: data.user?.email });
-          setShowVaultModal(true);
-        } else {
-          onSuccess?.();
-          router.push(redirectUrl);
-        }
+        // Seamless 1-Click Google Authentication: navigate straight into the app
+        onSuccess?.();
+        router.push(redirectUrl);
       } catch (err: unknown) {
         const detail =
           err instanceof Error ? err.message : "Network error during Google sign in.";
@@ -409,22 +400,6 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
           </form>
         </div>
       </Modal>
-
-      {/* Zero-Knowledge Master Password Vault Decryption Modal */}
-      <MasterPasswordVaultModal
-        isOpen={showVaultModal}
-        userEmail={pendingVaultUser?.email}
-        onClose={() => {
-          setShowVaultModal(false);
-          setPendingVaultUser(null);
-        }}
-        onUnlocked={() => {
-          setShowVaultModal(false);
-          setPendingVaultUser(null);
-          onSuccess?.();
-          router.push(redirectUrl);
-        }}
-      />
     </>
   );
 };

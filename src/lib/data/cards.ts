@@ -182,17 +182,5 @@ export const SECTION_B_CARDS: StackedWorkflowCardItem[] = [
     accent: "blue",
     microType: "audit_history",
   },
-  {
-    step: 8,
-    id: "step-billing",
-    tag: "STEP 08 • AUTOMATED BILLING",
-    title: "Billed Per Check or SaaS Subscription",
-    shortDesc: "Flexible quota metering with atomic reservations and refund guards.",
-    technicalDetails:
-      "Every sheet check decrements your tenant quota ledger with atomic Prisma transaction locking. If analysis fails or aborts, quota is reconciled exactly once automatically.",
-    standardRef: "Atomic Ledger Accounting & Stripe/Razorpay Compliant",
-    accent: "green",
-    microType: "billing_meter",
-  },
 ];
 

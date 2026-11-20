@@ -605,11 +605,10 @@ export default function CheckWorkflowPage() {
       }
 
       // Vercel Serverless Functions have a strict 4.5MB request payload limit (FUNCTION_PAYLOAD_TOO_LARGE).
-      // When the user uploads a delivery ZIP containing dozens of sheets (e.g. 15MB with 62 sheets),
-      // sending the raw binary over HTTP triggers HTTP 413.
-      // The outputManifest already contains all 62 sheet names, extracted wire labels, and connector pinouts!
-      // Therefore, only attach raw binary outputFile if it is lightweight (<= 1.5MB).
-      if (outputFile && outputFile.size <= 1.5 * 1024 * 1024) {
+      // The outputManifest already contains all sheet names, extracted wire labels, and connector pinouts!
+      // Only attach raw binary outputFile if combined payload stays safely below 3.2MB.
+      const combinedBinarySize = fileToUpload.size + (outputFile?.size || 0);
+      if (outputFile && combinedBinarySize <= 3.2 * 1024 * 1024) {
         formData.append("outputFile", outputFile, outputFileData?.name || "delivery_output_package.zip");
       }
       formData.append("projectId", activeProjectId);
@@ -631,6 +630,9 @@ export default function CheckWorkflowPage() {
       try {
         data = JSON.parse(responseText);
       } catch {
+        if (response.status === 413) {
+          throw new Error("Schematic file size exceeds serverless payload threshold (4.5 MB). Please compress the PDF or split large multi-gigabyte packages.");
+        }
         throw new Error(
           response.ok
             ? "Invalid server response received."

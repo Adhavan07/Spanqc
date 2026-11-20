@@ -124,13 +124,6 @@ export function AppHeader() {
                 >
                   Usage & Quotas
                 </Link>
-                <Link
-                  href="/app/billing"
-                  onClick={() => setProfileDropdownOpen(false)}
-                  className="block px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800/80"
-                >
-                  Billing & Invoices
-                </Link>
               </div>
 
               <div className="pt-1 border-t border-slate-800">

@@ -13,7 +13,7 @@ import { randomBytes } from "node:crypto";
 const GOOGLE_CLIENT_ID =
   process.env.GOOGLE_CLIENT_ID ||
   process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ||
-  "";
+  "484989055452-9uglf7ac93sib0jkccus8i5naumhmh92.apps.googleusercontent.com";
 
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || undefined);
 
@@ -170,8 +170,8 @@ export async function POST(request: Request) {
           name: orgName,
           slug,
           status: "ACTIVE",
-          plan: "SUBSCRIPTION",
-          checkQuota: 120,
+          plan: "ENTERPRISE",
+          checkQuota: 999999,
           quotaUsed: 0,
         },
       });
@@ -249,8 +249,8 @@ export async function POST(request: Request) {
       },
       security: {
         auth_method: "google",
-        requires_master_password_vault_unlock: true,
-        message: "Session authenticated via Google. Master Password required for Zero-Knowledge vault decryption.",
+        requires_master_password_vault_unlock: false,
+        message: "Session authenticated via Google.",
       },
     });
 

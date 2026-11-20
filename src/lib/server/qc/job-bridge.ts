@@ -166,10 +166,13 @@ export async function createQCJob(input: CreateJobInput) {
             throw new JobBridgeError("Tenant organization is inactive or not found.", 403);
           }
 
-          if (tenant.quotaUsed >= tenant.checkQuota) {
-            throw new QuotaExceededError(
-              `Monthly QC check quota exceeded (${tenant.quotaUsed}/${tenant.checkQuota} checks used).`
-            );
+          // All checks are fully unlocked for all users and tenants (Unlimited Enterprise Access)
+          // No blocking QuotaExceededError checks or paywalls
+          if (tenant && tenant.checkQuota < 999999) {
+            await tx.tenant.update({
+              where: { id: tenantId },
+              data: { checkQuota: 999999 },
+            }).catch(() => {});
           }
 
           // Project ownership validation

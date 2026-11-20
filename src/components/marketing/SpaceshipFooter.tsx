@@ -218,39 +218,33 @@ export function SpaceshipFooter() {
         </div>
       </div>
 
-      {/* 3. Bottom Trust, Payment Options & Certifications Bar (Direct Spaceship Clone) */}
+      {/* 3. Bottom Trust, Security & Certifications Bar */}
       <div className="w-full border-t border-white/5 bg-[#05070c] py-8 px-6 sm:px-8 lg:px-12">
         <div className="max-w-[1360px] mx-auto flex flex-col lg:flex-row items-center justify-between gap-8">
-          {/* Payment Options Strip */}
+          {/* Platform Availability Strip */}
           <div className="flex flex-col gap-2 text-center lg:text-left">
             <span className="text-xs font-bold uppercase tracking-wider text-[#eaf1ff]">
-              Payment Options
+              Platform Availability
             </span>
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2">
-              <span className="px-2.5 py-1 rounded bg-white/10 text-[11px] font-bold text-white tracking-wider">
-                VISA
+              <span className="px-2.5 py-1 rounded bg-[#1ed6a0]/20 text-[11px] font-bold text-[#1ed6a0] tracking-wider border border-[#1ed6a0]/40">
+                100% UNLOCKED
               </span>
               <span className="px-2.5 py-1 rounded bg-white/10 text-[11px] font-bold text-white tracking-wider">
-                MASTERCARD
+                UNLIMITED CHECKS
               </span>
               <span className="px-2.5 py-1 rounded bg-white/10 text-[11px] font-bold text-white tracking-wider">
-                RUPAY
+                IPC/WHMA-A-620
               </span>
               <span className="px-2.5 py-1 rounded bg-white/10 text-[11px] font-bold text-white tracking-wider">
-                AMEX
+                UL 508A
               </span>
               <span className="px-2.5 py-1 rounded bg-[#2f8cff]/20 text-[11px] font-bold text-[#2f8cff] tracking-wider border border-[#2f8cff]/40">
-                UPI (GPAY / PHONEPE)
-              </span>
-              <span className="px-2.5 py-1 rounded bg-white/10 text-[11px] font-bold text-white tracking-wider">
-                NETBANKING
-              </span>
-              <span className="px-2.5 py-1 rounded bg-[#00f0ff]/20 text-[11px] font-bold text-[#00f0ff] tracking-wider border border-[#00f0ff]/40">
-                RAZORPAY
+                AIR-GAPPED READY
               </span>
             </div>
             <p className="text-[11px] text-[#7f93b8] mt-0.5">
-              We protect and encrypt your schematic and billing data. 256-bit TLS Zero-Knowledge Vault.
+              All engineering checks, rule packages, and verification suites are fully unlocked.
             </p>
           </div>
 

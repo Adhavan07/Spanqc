@@ -52,8 +52,8 @@ export function MarketingFooter() {
               </Link>
             </li>
             <li>
-              <Link href="/pricing" className="hover:text-cyan-400 transition-colors">
-                Commercial Pricing
+              <Link href="/login" className="hover:text-cyan-400 transition-colors">
+                Free Engineering Access
               </Link>
             </li>
           </ul>

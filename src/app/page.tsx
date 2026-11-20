@@ -7,16 +7,13 @@ import { DemoRequestModal } from "@/components/marketing/DemoRequestModal";
 import { SmoothScrollProvider } from "@/components/scroll/SmoothScrollProvider";
 import { HorizontalCards } from "@/components/scroll/HorizontalCards";
 import { StackedCards } from "@/components/scroll/StackedCards";
-import { BillingCardsSection } from "@/components/marketing/BillingCardsSection";
 import { SpaceshipFooter } from "@/components/marketing/SpaceshipFooter";
-import { RazorpayCheckoutModal } from "@/components/billing/RazorpayCheckoutModal";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useScrollDirection } from "@/lib/hooks/useScrollDirection";
 import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export default function HomePage() {
   const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const isNavVisible = useScrollDirection({ threshold: 8, topOffset: 50 });
 
   useEffect(() => {
@@ -52,14 +49,6 @@ export default function HomePage() {
 
     return () => observer.disconnect();
   }, []);
-
-  const handleSelectPlan = (planId: "starter" | "production" | "enterprise") => {
-    if (planId === "enterprise") {
-      setIsDemoModalOpen(true);
-    } else {
-      setIsCheckoutModalOpen(true);
-    }
-  };
 
   return (
     <SmoothScrollProvider>
@@ -171,13 +160,7 @@ export default function HomePage() {
           {/* SECTION B: Pinned 3D Vertical Stacked Cards Deck */}
           <StackedCards />
 
-          {/* 4. Authoritative Billing & Pricing Section */}
-          <BillingCardsSection
-            onSelectPlan={handleSelectPlan}
-            onRequestDemo={() => setIsDemoModalOpen(true)}
-          />
-
-          {/* 5. Bottom Action Callout */}
+          {/* 4. Bottom Action Callout */}
           <section className="relative w-full py-24 bg-gradient-to-b from-[#060811] to-[#04060d] text-center px-6">
             <div className="max-w-3xl mx-auto">
               <h2 className="text-[clamp(32px,4vw,48px)] font-bold text-[#eaf1ff] tracking-tight mb-5 leading-tight">
@@ -205,18 +188,11 @@ export default function HomePage() {
           </section>
         </main>
 
-        {/* 6. Spaceship-Inspired Enterprise Footer */}
+        {/* 5. Spaceship-Inspired Enterprise Footer */}
         <SpaceshipFooter />
 
         {/* Modals */}
         <DemoRequestModal isOpen={isDemoModalOpen} onClose={() => setIsDemoModalOpen(false)} />
-        <RazorpayCheckoutModal
-          isOpen={isCheckoutModalOpen}
-          onClose={() => setIsCheckoutModalOpen(false)}
-          onSuccess={() => setIsCheckoutModalOpen(false)}
-          billingStatus="NOT_LIVE"
-          isBillingEnabled={false}
-        />
       </div>
     </SmoothScrollProvider>
   );
