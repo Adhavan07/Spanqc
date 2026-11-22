@@ -2,119 +2,55 @@
 
 import React from "react";
 import Link from "next/link";
-import { ShieldCheck, FileCheck2, Cpu, Box } from "lucide-react";
 import { SpanqcLogo } from "@/components/brand/SpanqcLogo";
 
 export function MarketingFooter() {
   return (
-    <footer className="w-full border-t border-slate-800/80 bg-[#050608] text-slate-400 py-16 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-5 gap-8 mb-12">
-        {/* Brand Column */}
-        <div className="space-y-4 md:col-span-2">
-          <div className="flex items-center gap-3">
-            <SpanqcLogo variant="full" size="md" />
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 font-bold uppercase">
-              PLATFORM
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-            Automated quality control platform for electrical schematics, wire harness assemblies, and industrial control panels. Built for aerospace, automotive, and defense manufacturers.
+    <footer className="w-full border-t border-slate-800/80 bg-[#050608] text-slate-400 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+        {/* Brand & Tagline */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 text-center sm:text-left">
+          <Link href="/" className="hover:opacity-90 transition-opacity">
+            <SpanqcLogo variant="full" size="sm" />
+          </Link>
+          <span className="hidden sm:inline-block w-px h-4 bg-slate-800" />
+          <p className="text-xs text-slate-500">
+            Automated Schematic & Wiring Diagram Quality Control
           </p>
-          <div className="pt-2 text-[11px] text-slate-500 font-mono">
-            Spandsons Horizon Engineering Pvt. Ltd. • All systems operational
-          </div>
         </div>
 
-        {/* Platform Links */}
-        <div>
-          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-3 font-mono">
-            Platform
-          </h4>
-          <ul className="space-y-2 text-xs">
-            <li>
-              <Link href="/login" className="hover:text-cyan-400 transition-colors">
-                Launchpad™ Workspace
-              </Link>
-            </li>
-            <li>
-              <Link href="/login" className="hover:text-cyan-400 transition-colors">
-                Unbox™ Ingestion Flow
-              </Link>
-            </li>
-            <li>
-              <Link href="/product" className="hover:text-cyan-400 transition-colors">
-                Hybrid AI & Deterministic Engine
-              </Link>
-            </li>
-            <li>
-              <Link href="/standards" className="hover:text-cyan-400 transition-colors">
-                Standards Catalogue
-              </Link>
-            </li>
-            <li>
-              <Link href="/login" className="hover:text-cyan-400 transition-colors">
-                Free Engineering Access
-              </Link>
-            </li>
-          </ul>
-        </div>
-
-        {/* Trust & Security */}
-        <div>
-          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-3 font-mono">
-            Trust & Compliance
-          </h4>
-          <ul className="space-y-2 text-xs">
-            <li>
-              <Link href="/security" className="hover:text-cyan-400 transition-colors">
-                Security Architecture
-              </Link>
-            </li>
-            <li>
-              <Link href="/security" className="hover:text-cyan-400 transition-colors">
-                Tenant Cryptographic Isolation
-              </Link>
-            </li>
-            <li>
-              <Link href="/resources" className="hover:text-cyan-400 transition-colors">
-                Regression Test Benchmarks
-              </Link>
-            </li>
-            <li>
-              <Link href="/resources" className="hover:text-cyan-400 transition-colors">
-                Audit Trail & QC Reports
-              </Link>
-            </li>
-          </ul>
-        </div>
-
-        {/* Supported Standards */}
-        <div>
-          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider mb-3 font-mono">
-            Active Standards
-          </h4>
-          <div className="flex flex-col gap-2 text-xs">
-            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-              <FileCheck2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span className="text-slate-300 font-mono text-[11px]">IPC-620D Class 1, 2, 3</span>
-            </div>
-            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span className="text-slate-300 font-mono text-[11px]">UL 508A Industrial Panels</span>
-            </div>
-            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-              <Cpu className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="text-slate-300 font-mono text-[11px]">ISO 7200 / ASME Y14.1</span>
-            </div>
-          </div>
-        </div>
+        {/* Minimal Nav Links */}
+        <nav className="flex flex-wrap items-center justify-center gap-6 text-xs font-medium text-slate-300">
+          <Link href="/product" className="hover:text-cyan-400 transition-colors">
+            Product
+          </Link>
+          <Link href="/standards" className="hover:text-cyan-400 transition-colors">
+            Standards
+          </Link>
+          <Link href="/security" className="hover:text-cyan-400 transition-colors">
+            Security
+          </Link>
+          <Link href="/how-it-works" className="hover:text-cyan-400 transition-colors">
+            How It Works
+          </Link>
+          <Link href="/contact" className="hover:text-cyan-400 transition-colors">
+            Contact
+          </Link>
+          <Link href="/app" className="text-cyan-400 hover:text-cyan-300 transition-colors">
+            Launchpad →
+          </Link>
+        </nav>
       </div>
 
-      <div className="max-w-7xl mx-auto pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-        <p>© 2026 Spandsons Horizon Engineering Pvt. Ltd. All rights reserved.</p>
-        <div className="flex items-center gap-6">
-          <Link href="/security" className="hover:text-slate-400">Security Architecture</Link>
-          <Link href="/contact" className="hover:text-slate-400">Contact Engineering</Link>
+      {/* Bottom Legal / Copyright */}
+      <div className="max-w-7xl mx-auto mt-6 pt-5 border-t border-slate-800/60 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500">
+        <div className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>All systems operational • IPC/WHMA-A-620 & UL 508A Verified</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <p>© 2026 Spandsons Horizon Engineering Pvt. Ltd. All rights reserved.</p>
+          <span className="text-slate-700">•</span>
           <span className="text-slate-600 font-mono">v1.0.0-pilot</span>
         </div>
       </div>
