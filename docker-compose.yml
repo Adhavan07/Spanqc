@@ -11,27 +11,34 @@ services:
     restart: unless-stopped
     ports:
       # Map HTTP port 80 directly to Next.js port 3000 for direct IP access
-      - "80:3000"
+      - "${PORT:-80}:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DATABASE_URL=file:/app/data/dev.db
-      - AUTH_SECRET=${AUTH_SECRET}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://spanqc:spanqc_secure_pass@db:5432/spanqc_prod?schema=public}
+      - DIRECT_URL=${DIRECT_URL:-}
+      - AUTH_SECRET=${AUTH_SECRET:-super-secret-enterprise-auth-key-change-in-prod}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost}
       - PYTHON_SERVICE_URL=http://core:8000
       - SPANQC_PYTHON_SERVICE_URL=http://core:8000
-      - RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}
-      - RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}
-      - RAZORPAY_WEBHOOK_SECRET=${RAZORPAY_WEBHOOK_SECRET:-}
-      - NEXT_PUBLIC_RAZORPAY_KEY_ID=${NEXT_PUBLIC_RAZORPAY_KEY_ID:-}
+      - NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_STORAGE_BUCKET=${SUPABASE_STORAGE_BUCKET:-spanqc-uploads}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING:-}
       - ADMIN_EMAILS=${ADMIN_EMAILS:-}
       - SPANQC_INTERNAL_SERVICE_SECRET=${SPANQC_INTERNAL_SERVICE_SECRET:-}
     volumes:
       - spanqc_data:/app/data
       - spanqc_storage:/app/storage
     depends_on:
-      core:
-        condition: service_healthy
+      - core
+      - db
     networks:
       - spanqc-network
     logging:
@@ -55,7 +62,12 @@ services:
       - "8000"
     environment:
       - PORT=8000
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
       - SPANQC_MODEL=${SPANQC_MODEL:-claude-sonnet-4-6}
     networks:
       - spanqc-network
@@ -65,13 +77,37 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # ============================================================================
+  # 3. Enterprise PostgreSQL Database (Included for Out-of-the-Box Zero-Setup)
+  # ============================================================================
+  db:
+    container_name: spanqc-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-spanqc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-spanqc_secure_pass}
+      - POSTGRES_DB=${POSTGRES_DB:-spanqc_prod}
+    volumes:
+      - spanqc_pgdata:/var/lib/postgresql/data
+    networks:
+      - spanqc-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 volumes:
-  # Persistent volume for SQLite database
+  # Persistent volume for application data
   spanqc_data:
     name: spanqc_prod_data
   # Persistent volume for uploaded wiring diagrams
   spanqc_storage:
     name: spanqc_prod_storage
+  # Persistent volume for local PostgreSQL data
+  spanqc_pgdata:
+    name: spanqc_prod_pgdata
 
 networks:
   spanqc-network:
