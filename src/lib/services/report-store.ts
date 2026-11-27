@@ -94,8 +94,8 @@ export function getReportById(reportId: string): QCRun | null {
   const custom = getStoredCustomReports();
   if (custom[reportId]) return custom[reportId];
 
-  // Fallback to primary seed if reportId not found
-  return seed["run-wh402"];
+  // Return null so callers fetch live jobs from /api/v1/qc/jobs/[jobId]
+  return null;
 }
 
 /**
@@ -457,6 +457,9 @@ export function triggerPdfExport(report: QCRun): void {
   if (typeof window === "undefined") return;
 
   const findings = report.findings || [];
+  const segPipeline = report.segmentation_pipeline;
+  const modSegs = segPipeline?.module_segments || [];
+  const lineTraces = segPipeline?.line_by_line_validation || [];
   const printWindow = window.open("", "_blank");
   if (!printWindow) {
     window.print();
@@ -547,6 +550,64 @@ export function triggerPdfExport(report: QCRun): void {
         .join("")}
     </tbody>
   </table>
+
+  ${modSegs.length > 0 ? `
+  <h3 style="font-size:15px;margin-top:24px;margin-bottom:8px;color:#0f172a;">Hierarchical Module Segmentation (${modSegs.length} modules)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Module #</th>
+        <th>Title</th>
+        <th>Input Sheets</th>
+        <th>Wires</th>
+        <th>Confirmed FINE</th>
+        <th>Issues Found</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${modSegs.map((m) => `
+      <tr>
+        <td style="font-family:monospace;font-weight:bold;">Module ${m.module_number}</td>
+        <td>${m.module_title || "-"}</td>
+        <td style="font-family:monospace;font-size:11px;">${(m.sheet_codes || []).join(", ") || "-"}</td>
+        <td>${m.wire_count}</td>
+        <td style="color:#16a34a;font-weight:bold;">${m.confirmed_fine}</td>
+        <td style="color:#dc2626;font-weight:bold;">${m.wrong_count}</td>
+        <td><b>${m.status}</b></td>
+      </tr>`).join("")}
+    </tbody>
+  </table>` : ""}
+
+  ${lineTraces.length > 0 ? `
+  <h3 style="font-size:15px;margin-top:24px;margin-bottom:8px;color:#0f172a;">Line-by-Line Wiring Verification (${Math.min(lineTraces.length, 150)} of ${lineTraces.length} traced lines)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Sheet</th>
+        <th>Wire No</th>
+        <th>Spec</th>
+        <th>From Node</th>
+        <th>To Node</th>
+        <th>Status</th>
+        <th>Verdict</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${lineTraces.slice(0, 150).map((lt) => `
+      <tr>
+        <td>${lt.line_no}</td>
+        <td style="font-family:monospace;font-size:11px;">${lt.sheet_code}</td>
+        <td style="font-family:monospace;font-weight:bold;">${lt.wire_no}</td>
+        <td style="font-family:monospace;font-size:11px;">${lt.colour || "-"} ${lt.size_mm2 ? `${lt.size_mm2}mm²` : ""}</td>
+        <td style="font-family:monospace;font-size:11px;">${lt.from_node || "-"}</td>
+        <td style="font-family:monospace;font-size:11px;">${lt.to_node || "-"}</td>
+        <td><b>${lt.validation_status}</b></td>
+        <td style="font-size:11px;">${lt.verdict || "-"}</td>
+      </tr>`).join("")}
+    </tbody>
+  </table>` : ""}
 
   <div class="signoff">
     <div class="signoff-box">

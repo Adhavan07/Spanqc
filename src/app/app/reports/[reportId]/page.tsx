@@ -46,6 +46,7 @@ export default function QCReportDetailPage({
   const reportId = resolvedParams.reportId;
 
   const [qcRun, setQcRun] = useState<QCRun | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [findings, setFindings] = useState<QCFinding[]>([]);
   const [selectedFindingId, setSelectedFindingId] = useState<string>("");
 
@@ -132,17 +133,17 @@ export default function QCReportDetailPage({
               r.will_work_count ??
               (Array.isArray(r.candidate_observations)
                 ? r.candidate_observations.filter((c: any) => c.will_work === true).length
-                : 14);
+                : 0);
             const wNotCount =
               r.will_not_work_count ??
               (Array.isArray(r.rule_findings)
                 ? r.rule_findings.filter((f: any) => f.circuit_impact?.will_work === false).length
-                : 2);
+                : 0);
             const docErrCount =
               r.documentation_error_count ??
               (Array.isArray(r.rule_findings)
                 ? r.rule_findings.filter((f: any) => f.circuit_impact && f.circuit_impact.will_work !== false).length
-                : 2);
+                : 0);
 
             setReportMeta({
               precisionScore: (r.precision_score ?? 1.0) * 100,
@@ -194,20 +195,30 @@ export default function QCReportDetailPage({
               id: r.report_id || reportId,
               organization_id: data.organization_id || "org-spandsons",
               document_id: data.document_id || "doc-live",
-              project_id: data.project_id || "proj-wh402",
+              project_id: data.project_id || "proj-default",
               standard: r.standard || data.standard || "SPANQC Tech Pub (Hyundai VDH)",
               status: "COMPLETED",
-              overall_result: r.overall_outcome === "PASS" ? "PASS" : "FAIL",
-              quality_score: r.overall_outcome === "PASS" ? 98 : 74,
+              overall_result:
+                r.overall_outcome === "PASS"
+                  ? "PASS"
+                  : r.overall_outcome === "REVIEW"
+                    ? "REVIEW"
+                    : "FAIL",
+              quality_score:
+                r.quality_score ??
+                r.segmentation_pipeline?.validation_summary?.overall_score ??
+                (r.overall_outcome === "PASS" ? 98 : 74),
               total_rules_evaluated: (r.rule_findings || []).length,
               total_discrepancies: (r.rule_findings || []).length,
               critical_count: (r.rule_findings || []).filter((f: any) => f.severity === "CRITICAL").length,
-              major_count: (r.rule_findings || []).filter((f: any) => f.severity === "MAJOR").length,
-              minor_count: (r.rule_findings || []).filter((f: any) => f.severity === "MINOR").length,
-              pass_count: r.overall_outcome === "PASS" ? 12 : 8,
+              major_count: (r.rule_findings || []).filter((f: any) => f.severity === "MAJOR" || f.severity === "HIGH").length,
+              minor_count: (r.rule_findings || []).filter((f: any) => f.severity === "MINOR" || f.severity === "MEDIUM").length,
+              pass_count: wCount,
               started_at: r.created_at || new Date().toISOString(),
               completed_at: r.created_at || new Date().toISOString(),
               findings: findingsList,
+              components_detected: Array.isArray(r.components_detected) ? r.components_detected : undefined,
+              segmentation_pipeline: r.segmentation_pipeline || undefined,
               document: {
                 id: "doc-live",
                 organization_id: data.organization_id || "org-spandsons",
@@ -227,16 +238,26 @@ export default function QCReportDetailPage({
             if (findingsList.length > 0) {
               setSelectedFindingId(findingsList[0].id);
             }
+          } else {
+            setLoadError(`Report "${reportId}" was not found or has not finished processing.`);
           }
         })
-        .catch((err) => console.error("Failed to load server QC report", err));
+        .catch((err) => {
+          console.error("Failed to load server QC report", err);
+          setLoadError(`Could not load QC report "${reportId}".`);
+        });
     }
   }, [reportId]);
 
   if (!qcRun) {
     return (
-      <div className="p-12 text-center text-slate-400 font-mono text-xs">
-        Loading QC Report for {reportId}...
+      <div className="p-12 text-center text-slate-400 font-mono text-xs space-y-3">
+        <div>{loadError || `Loading QC Report for ${reportId}...`}</div>
+        {loadError && (
+          <Link href="/app/check" className="inline-block text-cyan-400 hover:underline">
+            Upload a new schematic to run QC &rarr;
+          </Link>
+        )}
       </div>
     );
   }
@@ -468,7 +489,7 @@ export default function QCReportDetailPage({
             </span>
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            {qcRun.total_rules_evaluated} rules evaluated *(Sample Benchmark)*
+            {qcRun.total_rules_evaluated} rules evaluated
           </span>
         </Card>
       </div>
@@ -633,7 +654,7 @@ export default function QCReportDetailPage({
                 <div className="relative inline-block max-w-full">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={pagesRendered[activePage - 1] || qcRun.document?.storage_path || "/samples/VDH19_Wheel_Loader_Schematic.pdf"}
+                    src={pagesRendered[activePage - 1] || qcRun.document?.storage_path || ""}
                     alt={`${qcRun.document?.filename} Page ${activePage}`}
                     className="max-h-[420px] w-auto max-w-full object-contain rounded border border-slate-700 shadow-2xl bg-white select-none block"
                   />
@@ -749,7 +770,7 @@ export default function QCReportDetailPage({
                       CLAUSE: {selectedFinding.standard_reference}
                     </span>
                     <span className="text-[10px] font-mono font-bold text-cyan-400">
-                      CONFIDENCE: {(selectedFinding.confidence_score * 100).toFixed(0)}% *(Sample)*
+                      CONFIDENCE: {(selectedFinding.confidence_score * 100).toFixed(0)}%
                     </span>
                   </div>
                 </div>
@@ -1099,7 +1120,7 @@ export default function QCReportDetailPage({
                 <th className="p-3.5">ID</th>
                 <th className="p-3.5">Description & Title</th>
                 <th className="p-3.5">Severity</th>
-                <th className="p-3.5">Confidence *(Sample)*</th>
+                <th className="p-3.5">Confidence</th>
                 <th className="p-3.5">Standard Clause</th>
                 <th className="p-3.5">Location</th>
                 <th className="p-3.5">Review Status</th>

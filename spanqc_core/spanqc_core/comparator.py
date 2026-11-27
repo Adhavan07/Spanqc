@@ -73,15 +73,15 @@ def run_oem_vs_human_comparison(
                 "wire_no": o.wire_no,
                 "colour": o.colour,
                 "size_mm2": o.size,
-                "source": o.source,
+                "source": svg_f.name,
                 "source_comp": o.source,
                 "destination": o.destination,
                 "dest_comp": o.destination,
                 "page": idx,
                 "evidence_text": o.evidence,
                 "is_malformed": o.confidence == 0.0,
-                "malformed_reason": "Missing slash in color code" if "BKWH" in o.evidence else "",
-                "fuses_detected": sheet_fuses,
+                "malformed_reason": "Failed wire label grammar/colour syntax" if o.confidence == 0.0 else "",
+                "unused_stubs": [g["what"].replace("Fuse ", "") for g in unc_list if str(g.get("what", "")).startswith("Fuse ")],
                 "font_violation": {
                     "text": font_violations[0].text,
                     "found_px": font_violations[0].found_px,
@@ -89,39 +89,42 @@ def run_oem_vs_human_comparison(
                 } if font_violations else None
             })
 
-    # If CA30 module Excel exists, ingest colleague's cross-checked pin data
-    ca30_excel = Path("/data/projects/uiux/docs/Module7_CA30_Wire_List (1).xlsx")
-    if ca30_excel.exists():
-        # Inject the human-identified pin pairings to cross-check
-        human_wires.append({
-            "wire_no": "N9375", "dest_pin": "pin 76", "page": 5, "evidence_text": "N9375 -> pin 76 (FB1-5)",
-            "fuses_detected": []
-        })
-        human_wires.append({
-            "wire_no": "N9376", "dest_pin": "pin 75", "page": 5, "evidence_text": "N9376 -> pin 75 (FB1-5)",
-            "fuses_detected": []
-        })
-        human_wires.append({
-            "wire_no": "N9340", "source_comp": "CR7", "dest_pin": "pin 40", "page": 2, "evidence_text": "CR7 -> pin 40",
-            "fuses_detected": []
-        })
-        human_wires.append({
-            "wire_no": "CA1a_REF", "source_comp": "CA1a", "destination": "CN-93", "page": 1, "evidence_text": "CA1a:CN-93",
-            "fuses_detected": []
-        })
-        human_wires.append({
-            "wire_no": "F1_BUS", "source_comp": "F1", "dest_pin": "pins 1,25,26,27", "page": 1, "evidence_text": "F1 30A 4 branches",
-            "fuses_detected": []
-        })
+    # Extract genuine OEM Input wires from oem_pdf_path when available
+    oem_wires: List[Dict[str, Any]] = []
+    if oem_bytes:
+        try:
+            import pymupdf
+            from .wirecodes import WireLabel
+            oem_doc = pymupdf.open(stream=oem_bytes, filetype="pdf")
+            for p_idx, pg in enumerate(oem_doc, 1):
+                for line in pg.get_text().splitlines():
+                    s_line = line.strip()
+                    lab = WireLabel.parse(s_line) or WireLabel.parse_oem_compact(s_line)
+                    if lab and lab.wire_no:
+                        oem_wires.append({
+                            "wire_no": lab.wire_no,
+                            "colour": lab.colour,
+                            "size_mm2": lab.size,
+                            "source": f"OEM Page {p_idx}",
+                            "page": p_idx,
+                            "evidence_text": s_line,
+                        })
+        except Exception:
+            pass
 
-    # Execute deterministic graph diff against master
+    # Execute deterministic graph diff against extracted Input OEM wires
     diff_result: NetlistDiffResult = diff_oem_vs_human_netlists(
-        oem_wires=[],  # Diff engine uses master rules and known OEM constraints
+        oem_wires=oem_wires,
         human_wires=human_wires,
         document_name=oem_p.name
     )
 
-    overall_outcome = "FAIL" if any(f.get("severity") == "CRITICAL" for f in diff_result.findings) else "REVIEW"
+    if any(f.get("severity") == "CRITICAL" or f.get("outcome") == "FAIL" for f in diff_result.findings):
+        overall_outcome = "FAIL"
+    elif diff_result.findings or not oem_wires:
+        overall_outcome = "REVIEW"
+    else:
+        overall_outcome = "PASS"
 
     # Calculate compliance scorecard
     scorecard = calculate_compliance_score(

@@ -511,11 +511,10 @@ def run_hierarchical_segmentation_and_tracing(
             fix_hint = "Include matching sheet SVG/JPG in Output bundle or confirm optional attachment."
             unverified_count += 1
         else:
-            v_status = "CONFIRMED_FINE"
-            verdict = f"FINE (INPUT EXTRACTED): Wire {rec['wire_no']} ({col} {sz or '?'}mm²) traced cleanly {rec['from_node']} -> {rec['to_node']}."
-            fix_hint = "Upload Output SVG/JPG bundle for dual cross-validation."
-            confirmed_fine_count += 1
-            module_map[rec["module_number"]]["confirmed_fine"] += 1
+            v_status = "UNVERIFIED_INPUT_ONLY"
+            verdict = f"UNVERIFIED (NO OUTPUT UPLOADED): Wire {rec['wire_no']} ({col} {sz or '?'}mm²) extracted on {rec['sheet_code']} ({rec['from_node']} -> {rec['to_node']})."
+            fix_hint = "Upload Output SVG/JPG bundle to validate this wire connection."
+            unverified_count += 1
 
         all_traced_lines.append({
             "line_no": rec["line_no"],
@@ -577,8 +576,10 @@ def run_hierarchical_segmentation_and_tracing(
         m = module_map[m_num]
         if m["wrong_count"] > 0:
             m["status"] = "ISSUES_FOUND" if m["score"] >= 70 else "CRITICAL_FAIL"
-        else:
+        elif m["confirmed_fine"] > 0:
             m["status"] = "FINE"
+        else:
+            m["status"] = "UNVERIFIED"
         module_segments.append({
             "module_number": m["module_number"],
             "module_title": m["module_title"],
@@ -617,8 +618,12 @@ def run_hierarchical_segmentation_and_tracing(
         "overall_score": overall_score,
         "verdict_banner": (
             f"ALL CLEAR ({confirmed_fine_count}/{total_traced} wiring lines confirmed FINE)"
-            if wrong_count == 0 and len(findings or []) == 0 and total_traced > 0
-            else f"{max(wrong_count, len(findings or []))} ISSUES DETECTED across {len(module_segments)} modules ({confirmed_fine_count} lines confirmed FINE)"
+            if has_output and wrong_count == 0 and len(findings or []) == 0 and confirmed_fine_count > 0
+            else (
+                "INPUT EXTRACTED ONLY — Upload Output SVG/JPG package to validate"
+                if not has_output and wrong_count == 0 and len(findings or []) == 0
+                else f"{max(wrong_count, len(findings or []))} ISSUES DETECTED across {len(module_segments)} modules ({confirmed_fine_count} lines confirmed FINE)"
+            )
         ),
     }
 

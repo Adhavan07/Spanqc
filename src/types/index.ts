@@ -197,7 +197,7 @@ export interface QCRun {
   status: QCStatus;
   current_stage?: string;
   progress_percent?: number;
-  overall_result: "PASS" | "FAIL" | "PENDING";
+  overall_result: "PASS" | "FAIL" | "REVIEW" | "PENDING";
   quality_score: number; // 0 - 100
   total_rules_evaluated: number;
   total_discrepancies: number;
@@ -210,6 +210,15 @@ export interface QCRun {
   document?: DocumentEntity;
   project?: Project;
   findings?: QCFinding[];
+  components_detected?: any[];
+  segmentation_pipeline?: {
+    module_segments?: Array<any>;
+    page_segments?: Array<any>;
+    functional_segments?: Array<any>;
+    cross_sheet_paths?: Array<any>;
+    line_by_line_validation?: Array<any>;
+    validation_summary?: Record<string, any>;
+  };
 }
 
 export interface QCReportSummary {

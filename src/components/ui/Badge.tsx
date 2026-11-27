@@ -22,7 +22,7 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: "severity" | "status" | "result" | "neutral" | "ai" | "outline";
   severity?: FindingSeverity;
   status?: FindingStatus;
-  result?: "PASS" | "FAIL" | "PENDING";
+  result?: "PASS" | "FAIL" | "REVIEW" | "PENDING";
   size?: "xs" | "sm" | "md";
   rounded?: "default" | "pill";
   showIcon?: boolean;
@@ -85,6 +85,25 @@ export function Badge({
         >
           {showIcon && <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />}
           <span>{children || "FAIL"}</span>
+        </span>
+      );
+    }
+    if (result === "REVIEW") {
+      return (
+        <span
+          className={twMerge(
+            clsx(
+              "inline-flex items-center tracking-wider uppercase border",
+              "bg-amber-500/15 text-amber-400 border-amber-500/40 shadow-sm shadow-amber-500/10",
+              sizeClass[size],
+              radiusClass,
+              className
+            )
+          )}
+          {...props}
+        >
+          {showIcon && <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+          <span>{children || "REVIEW"}</span>
         </span>
       );
     }

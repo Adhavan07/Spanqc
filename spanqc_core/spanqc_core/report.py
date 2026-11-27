@@ -88,6 +88,7 @@ def build_report(
     applicable_standard: str = "ISO 6722 / SAE J1939 / Hyundai Tech Pub",
     discipline_name: str = "Heavy Vehicles & Automotive Electrical Systems",
     detected_components: Sequence[dict] = (),
+    segmentation_pipeline: Optional[dict] = None,
 ) -> Path:
     """Build a professional multi-tab engineering QC audit workbook."""
     scorecard: ComplianceScorecard = calculate_compliance_score(
@@ -218,6 +219,56 @@ def build_report(
         for c in sorted(index.known):
             wc.append([c, "in scope" if c in index.in_scope else "known (not re-verified)"])
     _autosize(wc)
+
+    # ── TAB 6 & 7 (optional): HIERARCHICAL SEGMENTATION & LINE-BY-LINE TRACE ──
+    if segmentation_pipeline:
+        wms = wb.create_sheet("Module Segmentation")
+        _header(wms, [
+            "Module #", "Module Title", "Pages", "Input Sheet Codes",
+            "Output Matched Sheets", "Components", "Wires",
+            "Confirmed FINE", "Issues Found", "Score", "Status"
+        ])
+        for m in segmentation_pipeline.get("module_segments") or []:
+            wms.append([
+                f"Module {m.get('module_number', '?')}",
+                m.get("module_title", ""),
+                ", ".join(str(p) for p in (m.get("pages") or [])),
+                ", ".join(m.get("sheet_codes") or []),
+                ", ".join(m.get("output_sheets") or []),
+                m.get("component_count", 0),
+                m.get("wire_count", 0),
+                m.get("confirmed_fine", 0),
+                m.get("wrong_count", 0),
+                m.get("score", 0),
+                m.get("status", "UNVERIFIED"),
+            ])
+        _autosize(wms)
+
+        wll = wb.create_sheet("Line-by-Line Trace")
+        _header(wll, [
+            "Line #", "Module #", "Sheet Code", "Page", "Functional Zone",
+            "Wire No", "Colour", "Gauge (mm2)", "From Node", "To Node",
+            "Cross-Sheet Path", "Status", "Verdict", "Remediation", "Evidence"
+        ])
+        for lt in segmentation_pipeline.get("line_by_line_validation") or []:
+            wll.append([
+                lt.get("line_no"),
+                lt.get("module_number"),
+                lt.get("sheet_code"),
+                lt.get("page"),
+                lt.get("functional_segment"),
+                lt.get("wire_no"),
+                lt.get("colour"),
+                lt.get("size_mm2"),
+                lt.get("from_node"),
+                lt.get("to_node"),
+                lt.get("cross_sheet_path") or "-",
+                lt.get("validation_status"),
+                lt.get("verdict"),
+                lt.get("remediation"),
+                lt.get("evidence"),
+            ])
+        _autosize(wll)
 
     out = Path(path)
     wb.save(out)

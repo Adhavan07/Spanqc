@@ -2,13 +2,16 @@ import { db } from "../src/lib/server/db";
 import { hashPassword } from "../src/lib/server/auth/passwords";
 
 export const TEST_PASSWORDS = {
-  pravin: "PravinQC@2026!",
-  gogulnath: "GogulnathQC@2026!",
-  inspector: "InspectorQC@2026!",
-  alice: "AcmeAero@2026!",
+  pravin: process.env.SEED_PRAVIN_PASSWORD || "PravinQC@2026!",
+  gogulnath: process.env.SEED_GOGULNATH_PASSWORD || "GogulnathQC@2026!",
+  inspector: process.env.SEED_INSPECTOR_PASSWORD || "InspectorQC@2026!",
+  alice: process.env.SEED_ALICE_PASSWORD || "AcmeAero@2026!",
 };
 
 export async function runSeed() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("[SEED BLOCKED] Refusing to seed test credentials in production (NODE_ENV=production).");
+  }
   console.log("[SEED] Initializing multi-tenant staging seed data...");
 
   // 1. Spandsons Horizon Engineering Tenant

@@ -61,7 +61,6 @@ export default function CheckWorkflowPage() {
     pages: number;
     mime: string;
     hash: string;
-    sampleKey?: "vdh19" | "wh402" | "mcc" | "tb200";
   } | null>(null);
 
   // Redrawn Tech Pub Output delivery package (ZIP of SVGs/JPGs, or individual SVG/JPG)
@@ -461,137 +460,16 @@ export default function CheckWorkflowPage() {
     }
   };
 
-  // 1-Click Industrial Preloaded Samples
-  const loadIndustrialSample = async (sample: "vdh19" | "wh402" | "mcc" | "tb200") => {
-    setUploadError(null);
-    setProcessingError(null);
-    setSelectedFrame(null);
-    setRasterizedPageUrl(null);
-    setDetectedSegments([]);
-    setDetectedDefects([]);
-    setCurrentPage(1);
-    setRawFile(null);
-    setImagePreviewUrl(null);
-
-    if (sample === "vdh19") {
-      setFileData({
-        name: "20032026074234-Input_VDH19_A_INPUT.pdf",
-        size: "2.89 MB",
-        pages: 3,
-        mime: "application/pdf",
-        hash: "da90d031b07d72ffe0c7548f3a7388ad61d1d14f226640aec3181eaefa0c4592",
-        sampleKey: "vdh19",
-      });
-      setOutputFileData({
-        name: "VDH19_Output_Sheets_Batch.zip",
-        size: "1.42 MB",
-        mime: "application/zip",
-        hash: "74b62d8544e3f01c9a8b7e6f5d4c3b2a1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b",
-        sheetCount: 3,
-        detectedSheets: ["1 FB1-6.svg", "2 CMCU 1-3.svg", "3 CMCU 4-7.svg"],
-      });
-      setOutputManifest({
-        outputFilename: "VDH19_Output_Sheets_Batch.zip",
-        sheetCount: 3,
-        sheetNames: ["1 FB1-6.svg", "2 CMCU 1-3.svg", "3 CMCU 4-7.svg"],
-        extractedLines: [
-          "1 FB1-6",
-          "2 CMCU 1-3",
-          "3 CMCU 4-7",
-          "0.85 G/Y",
-          "0.85 Y",
-          "0.85 B/W",
-          "81K-12",
-          "CMCU-1",
-          "FB1-1",
-          "CN-8",
-          "CN-9",
-        ],
-      });
-      setSelectedStandard("SPANQC Tech Pub (Hyundai VDH)");
-      setStep("PREVIEW");
-
-      try {
-        const res = await fetch("/samples/VDH19_Wheel_Loader_Schematic.pdf");
-        if (res.ok) {
-          const blob = await res.blob();
-          const sampleFile = new File([blob], "20032026074234-Input_VDH19_A_INPUT.pdf", { type: "application/pdf" });
-          setRawFile(sampleFile);
-          renderPdfVectorPage(sampleFile, 1);
-          fetchPreviewFrames(blob, "Input_VDH19_A_INPUT.pdf", 1);
-        }
-      } catch (err) {
-        console.warn("Could not load sample VDH PDF", err);
-      }
-    } else if (sample === "wh402") {
-      setOutputFile(null);
-      setOutputFileData(null);
-      setOutputManifest(null);
-      setFileData({
-        name: "WH-402_Avionics_Wiring_Manual_RevC.pdf",
-        size: "4.19 MB",
-        pages: 8,
-        mime: "application/pdf",
-        hash: "9f83a21b456cd89e1a2f3c4e5d6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a",
-        sampleKey: "wh402",
-      });
-      setSelectedStandard("IPC/WHMA-A-620D");
-      setImagePreviewUrl("/frames/frame_001.webp");
-      setStep("PREVIEW");
-    } else if (sample === "mcc") {
-      setOutputFile(null);
-      setOutputFileData(null);
-      setOutputManifest(null);
-      setFileData({
-        name: "MCC_VFD_Panel_Schematic_v2.pdf",
-        size: "2.84 MB",
-        pages: 4,
-        mime: "application/pdf",
-        hash: "8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b",
-        sampleKey: "mcc",
-      });
-      setSelectedStandard("UL 508A");
-      setImagePreviewUrl("/frames/frame_020.webp");
-      setStep("PREVIEW");
-    } else {
-      setOutputFile(null);
-      setOutputFileData(null);
-      setOutputManifest(null);
-      setFileData({
-        name: "TB200_Relay_Interface_Rev1.pdf",
-        size: "1.65 MB",
-        pages: 2,
-        mime: "application/pdf",
-        hash: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
-        sampleKey: "tb200",
-      });
-      setSelectedStandard("IPC/WHMA-A-620D");
-      setImagePreviewUrl("/frames/frame_030.webp");
-      setStep("PREVIEW");
-    }
-  };
-
   // Start Real Processing Pipeline wired to Python QC Service queue
   const handleStartQC = async () => {
     setProcessingError(null);
     setStep("PROCESSING");
     setProcessingStage(0);
 
-    let fileToUpload: File | Blob | null = rawFile;
-
-    // If sample was selected, fetch it as Blob
-    if (!fileToUpload && fileData?.sampleKey) {
-      try {
-        const sampleUrl = fileData.sampleKey === "wh402" ? "/frames/frame_001.webp" : "/frames/frame_020.webp";
-        const sampleRes = await fetch(sampleUrl);
-        fileToUpload = await sampleRes.blob();
-      } catch (err) {
-        console.warn("Failed to fetch sample file as blob", err);
-      }
-    }
+    const fileToUpload: File | Blob | null = rawFile;
 
     if (!fileToUpload) {
-      setProcessingError("No schematic file available to upload.");
+      setProcessingError("No real schematic file uploaded. Upload an OEM schematic PDF/image to run QC.");
       setStep("PREVIEW");
       return;
     }
@@ -968,16 +846,6 @@ export default function CheckWorkflowPage() {
             </div>
 
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <Button
-                onClick={() => loadIndustrialSample("vdh19")}
-                variant="secondary"
-                size="md"
-                leftIcon={<Sparkles className="w-4 h-4 text-cyan-400" />}
-                className="w-full sm:w-auto cursor-pointer"
-              >
-                Load Hyundai VDH-19 Sample (PDF + ZIP)
-              </Button>
-
               <Button
                 onClick={() => {
                   if (!fileData && outputFileData) {

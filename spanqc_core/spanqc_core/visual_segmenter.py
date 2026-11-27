@@ -225,95 +225,9 @@ def extract_visual_segments_and_defects(
             },
         ])
 
-    # 3. Derive Defect Spatial Bounding Boxes
+    # 3. Never fabricate defects from page keywords.
+    # Deterministic defects must come strictly from evaluated wire/rule netlists (rules.py & netlist_diff.py).
     defects: List[Dict[str, Any]] = []
-
-    # Check for known deterministic defect patterns on this sheet
-    page_text = page.get_text()
-
-    # Defect A: CMCU Pin 75/76 Swap (CAN Bus Inversion)
-    if "CMCU" in page_text or "CN-52" in page_text:
-        cmcu_seg = next((s for s in segments if "CMCU" in s["name"]), None)
-        cmcu_bbox = cmcu_seg["bbox"] if cmcu_seg else {"left": 47.0, "top": 88.0, "width": 12.0, "height": 8.0}
-        defects.append({
-            "id": "DEF-001",
-            "rule": "RULE-NET-004",
-            "title": "Pin 75/76 Swapped (CAN Inversion)",
-            "severity": "CRITICAL",
-            "consequence": "WILL_NOT_WORK",
-            "bbox": {
-                "left": cmcu_bbox["left"] + 1.0,
-                "top": cmcu_bbox["top"] + 0.5,
-                "width": max(7.0, cmcu_bbox["width"] - 2.0),
-                "height": max(5.0, cmcu_bbox["height"] - 1.0),
-            },
-            "observed": "CN-52 Pin 75 assigned CAN-L, Pin 76 assigned CAN-H",
-            "expected": "SAE J1939 Standard: Pin 75 MUST be CAN-H, Pin 76 MUST be CAN-L",
-            "details": "Transposed CAN bus differential pair prevents controller startup and causes communication bus failure.",
-        })
-
-    # Defect B: FB1 Cavity F1 30A Missing Power Branch
-    if "FB1" in page_text or "FUSE" in page_text:
-        fb1_seg = next((s for s in segments if "FB1" in s["name"]), None)
-        fb1_bbox = fb1_seg["bbox"] if fb1_seg else {"left": 45.0, "top": 6.0, "width": 10.0, "height": 8.0}
-        defects.append({
-            "id": "DEF-002",
-            "rule": "RULE-NET-001",
-            "title": "Missing 30A Power Wire Branch (F1)",
-            "severity": "CRITICAL",
-            "consequence": "MISSING_POWER_BRANCH",
-            "bbox": {
-                "left": fb1_bbox["left"] + 0.5,
-                "top": fb1_bbox["top"] + 0.5,
-                "width": max(6.5, fb1_bbox["width"] - 1.5),
-                "height": max(5.0, fb1_bbox["height"] - 1.5),
-            },
-            "observed": "Fuse cavity F1 (30A rating) has no connected output wire",
-            "expected": "ISO 6722 / Hyundai VDH: Active 30A cavity must route via 3.0mm² wire to downstream CA30 rail",
-            "details": "Unconnected fuse cavity leaves chassis controller without primary unswitched battery feed.",
-        })
-
-    # Defect C: Relay 38/40 Terminal Swap in Cabin Switch / Relays
-    if "CN-9" in page_text or "RELAY" in page_text or "CCR" in page_text:
-        cn9_seg = next((s for s in segments if "CN-9" in s["name"]), None)
-        cn9_bbox = cn9_seg["bbox"] if cn9_seg else {"left": 70.0, "top": 14.0, "width": 7.0, "height": 6.0}
-        defects.append({
-            "id": "DEF-003",
-            "rule": "RULE-RELAY-002",
-            "title": "Relay 38/40 Terminal Swap",
-            "severity": "CRITICAL",
-            "consequence": "WILL_NOT_WORK",
-            "bbox": {
-                "left": cn9_bbox["left"] + 0.2,
-                "top": cn9_bbox["top"] + 0.2,
-                "width": max(6.0, cn9_bbox["width"]),
-                "height": max(5.0, cn9_bbox["height"]),
-            },
-            "observed": "Relay coil terminal 38 connected to KL31 ground instead of 40",
-            "expected": "IEC 60204-1 §13 / Standard Relay Matrix: Terminal 40 is coil ground reference",
-            "details": "Swapped terminals will produce a direct short circuit across the control switch when coil is energized.",
-        })
-
-    # Defect D: Wire Gauge Missing or Syntax Deviations (General Schematics)
-    wire_search = page.search_for("22 AWG") or page.search_for("W102") or page.search_for("81K")
-    if wire_search:
-        wr = wire_search[0]
-        defects.append({
-            "id": "DEF-004",
-            "rule": "RULE-WG-001",
-            "title": "Wire Missing Conductor Gauge Specification",
-            "severity": "MAJOR",
-            "consequence": "DEFECTIVE_DOCUMENTATION",
-            "bbox": {
-                "left": round((max(0, wr.x0 - 15) / w) * 100, 2),
-                "top": round((max(0, wr.y0 - 10) / h) * 100, 2),
-                "width": round(((wr.x1 - wr.x0 + 30) / w) * 100, 2),
-                "height": round(((wr.y1 - wr.y0 + 20) / h) * 100, 2),
-            },
-            "observed": "Wire conductor identified with color code only, cross-sectional gauge is omitted",
-            "expected": "IPC/WHMA-A-620D §4.1: Conductor callout must state nominal AWG or mm² size",
-            "details": "Missing cross-section size prevents electrical harness manufacturing and crimp verification.",
-        })
 
     return {
         "page_number": page_idx + 1,

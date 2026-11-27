@@ -660,13 +660,7 @@ export async function exportProfessionalQCWorkbook(
   report: QCRun,
   extraObservations?: any[]
 ): Promise<void> {
-  const isCA30 =
-    (report.document?.filename || "").toLowerCase().includes("module7") ||
-    (report.document?.filename || "").toLowerCase().includes("ca30") ||
-    (report.document?.filename || "").toLowerCase().includes("ca1a") ||
-    (report.document?.filename || "").toLowerCase().includes("vdh") ||
-    (report.standard || "").toLowerCase().includes("hyundai") ||
-    (extraObservations && extraObservations.length === 0 && (!report.findings || report.findings.length <= 4));
+  const isCA30 = false;
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "SpanQC Automated Quality Control Assistant";
@@ -1099,33 +1093,25 @@ export async function exportProfessionalQCWorkbook(
     c.border = BORDER_THIN;
   });
 
-  // Component Rows
-  const compData = isCA30
-    ? CA30_GOLDEN_COMPONENTS
+  // Component Rows — always use real detected components from the run
+  const detectedComps = report.components_detected || [];
+  const compData = detectedComps.length > 0
+    ? detectedComps.map((c: any) => ({
+        component: c.designator || "COMP",
+        connectors: c.node_ref || c.symbol_code || "-",
+        sheets: c.sheet || "Sheet 1",
+        symbol: c.symbol_name || c.category || "Component Symbol",
+        notes: c.evidence || `${c.symbol_name || c.designator} detected in schematic segmentation.`,
+        linkToPrior: c.source_type || report.standard,
+      }))
     : [
         {
-          component: "MAIN_PANEL / TB-GND",
-          connectors: "TB-01, TB-GND (12 pins)",
-          sheets: "Sheet 1, Feeder Bus Zone A1",
-          symbol: "Terminal block / Ground symbol",
-          notes: "Primary distribution terminal block for high-voltage and grounding conductors.",
-          linkToPrior: "Grounding and bonding verification per UL 508A.",
-        },
-        {
-          component: "CB-Q1 / BREAKER",
-          connectors: "Terminals L1, L2, L3, T1, T2, T3",
-          sheets: "Sheet 1, Zone B2",
-          symbol: "Molded-case circuit breaker symbol",
-          notes: "Main overcurrent protective device. Audited for SCCR compliance.",
-          linkToPrior: "Upstream feeder breaker withstand rating.",
-        },
-        {
-          component: "CONTROL_TRANSFORMER / T1",
-          connectors: "H1, H2, H3, H4 / X1, X2",
-          sheets: "Sheet 1, Zone C3",
-          symbol: "Step-down dual-winding transformer",
-          notes: "480V to 120V secondary control power transformer with dual fuse block.",
-          linkToPrior: "Secondary circuit conductor sizing and fuse rating.",
+          component: "NO COMPONENTS EXTRACTED",
+          connectors: "-",
+          sheets: report.document?.filename || "-",
+          symbol: "-",
+          notes: "No structured component designators extracted for this run.",
+          linkToPrior: report.standard,
         },
       ];
 
@@ -1472,6 +1458,137 @@ export async function exportProfessionalQCWorkbook(
     }
     curRowS++;
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // TAB 6 & 7: Hierarchical Module Segmentation & Line-by-Line Wiring Trace
+  // ─────────────────────────────────────────────────────────────────────────────
+  const segPipeline = report.segmentation_pipeline;
+  if (segPipeline && ((segPipeline.module_segments || []).length > 0 || (segPipeline.line_by_line_validation || []).length > 0)) {
+    const ws6 = wb.addWorksheet("Module Segmentation", {
+      views: [{ showGridLines: true }],
+    });
+    ws6.getColumn("A").width = 14;
+    ws6.getColumn("B").width = 30;
+    ws6.getColumn("C").width = 14;
+    ws6.getColumn("D").width = 24;
+    ws6.getColumn("E").width = 26;
+    ws6.getColumn("F").width = 14;
+    ws6.getColumn("G").width = 12;
+    ws6.getColumn("H").width = 15;
+    ws6.getColumn("I").width = 14;
+    ws6.getColumn("J").width = 10;
+    ws6.getColumn("K").width = 18;
+
+    ws6.getCell("A1").value = `Hierarchical Module Segmentation — ${report.document?.filename || "Schematic"}`;
+    ws6.getCell("A1").font = { name: "Arial", size: 14, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+    ws6.getCell("A2").value = segPipeline.validation_summary?.verdict_banner || "Hierarchical module and page segmentation summary";
+    ws6.getCell("A2").font = { name: "Arial", size: 10, color: { argb: PALETTE.TEXT_DARK } };
+
+    const modHeaders = [
+      "Module #", "Module Title", "Pages", "Input Sheet Codes", "Output Matched Sheets",
+      "Components", "Wires", "Confirmed FINE", "Issues Found", "Score", "Status"
+    ];
+    const rModH = ws6.getRow(4);
+    rModH.height = 24;
+    modHeaders.forEach((hdr, idx) => {
+      const c = rModH.getCell(idx + 1);
+      c.value = hdr;
+      c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+      c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      c.border = BORDER_THIN;
+    });
+
+    (segPipeline.module_segments || []).forEach((m: any, idx: number) => {
+      const r = ws6.getRow(5 + idx);
+      r.height = 24;
+      const vals = [
+        `Module ${m.module_number ?? "?"}`,
+        m.module_title || "-",
+        (m.pages || []).join(", "),
+        (m.sheet_codes || []).join(", "),
+        (m.output_sheets || []).join(", "),
+        m.component_count ?? 0,
+        m.wire_count ?? 0,
+        m.confirmed_fine ?? 0,
+        m.wrong_count ?? 0,
+        m.score ?? 0,
+        m.status || "UNVERIFIED",
+      ];
+      vals.forEach((v, cIdx) => {
+        const cell = r.getCell(cIdx + 1);
+        cell.value = v;
+        cell.font = { name: "Arial", size: 9, bold: cIdx === 0 || cIdx === 10 };
+        cell.border = BORDER_THIN;
+        cell.alignment = { vertical: "middle", horizontal: [5, 6, 7, 8, 9, 10].includes(cIdx) ? "center" : "left", wrapText: true };
+      });
+    });
+
+    const ws7 = wb.addWorksheet("Line-by-Line Trace", {
+      views: [{ showGridLines: true }],
+    });
+    ws7.getColumn("A").width = 8;
+    ws7.getColumn("B").width = 11;
+    ws7.getColumn("C").width = 16;
+    ws7.getColumn("D").width = 8;
+    ws7.getColumn("E").width = 24;
+    ws7.getColumn("F").width = 14;
+    ws7.getColumn("G").width = 10;
+    ws7.getColumn("H").width = 12;
+    ws7.getColumn("I").width = 22;
+    ws7.getColumn("J").width = 22;
+    ws7.getColumn("K").width = 24;
+    ws7.getColumn("L").width = 22;
+    ws7.getColumn("M").width = 46;
+    ws7.getColumn("N").width = 34;
+
+    ws7.getCell("A1").value = `Line-by-Line Wiring Verification — ${report.document?.filename || "Schematic"}`;
+    ws7.getCell("A1").font = { name: "Arial", size: 14, bold: true, color: { argb: PALETTE.NAVY_HEADER } };
+
+    const llHeaders = [
+      "Line #", "Module #", "Sheet Code", "Page", "Functional Zone",
+      "Wire No", "Colour", "Gauge (mm²)", "From Node", "To Node",
+      "Cross-Sheet Path", "Status", "Verdict", "Remediation"
+    ];
+    const rLLH = ws7.getRow(4);
+    rLLH.height = 24;
+    llHeaders.forEach((hdr, idx) => {
+      const c = rLLH.getCell(idx + 1);
+      c.value = hdr;
+      c.font = { name: "Arial", size: 10, bold: true, color: { argb: PALETTE.WHITE_TEXT } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: PALETTE.NAVY_HEADER } };
+      c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      c.border = BORDER_THIN;
+    });
+
+    (segPipeline.line_by_line_validation || []).forEach((lt: any, idx: number) => {
+      const r = ws7.getRow(5 + idx);
+      r.height = 28;
+      const vals = [
+        lt.line_no ?? idx + 1,
+        lt.module_number ?? "-",
+        lt.sheet_code || "-",
+        lt.page ?? 1,
+        lt.functional_segment || "-",
+        lt.wire_no || "-",
+        lt.colour || "-",
+        lt.size_mm2 ?? "-",
+        lt.from_node || "-",
+        lt.to_node || "-",
+        lt.cross_sheet_path || "-",
+        lt.validation_status || "UNVERIFIED_INPUT_ONLY",
+        lt.verdict || "-",
+        lt.remediation || "-",
+      ];
+      vals.forEach((v, cIdx) => {
+        const cell = r.getCell(cIdx + 1);
+        cell.value = v;
+        cell.font = { name: "Arial", size: 9, bold: cIdx === 5 || cIdx === 11 };
+        cell.border = BORDER_THIN;
+        cell.alignment = { vertical: "top", wrapText: true };
+      });
+    });
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Trigger Browser Download
