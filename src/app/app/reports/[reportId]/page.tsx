@@ -60,7 +60,15 @@ export default function QCReportDetailPage({
   const [pagesRendered, setPagesRendered] = useState<string[]>([]);
   const [observations, setObservations] = useState<any[]>([]);
   const [flaggedGaps, setFlaggedGaps] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<"FINDINGS" | "NETLIST" | "GAPS">("FINDINGS");
+  const [componentsDetected, setComponentsDetected] = useState<any[]>([]);
+  const [svgJpgPairing, setSvgJpgPairing] = useState<{
+    svg_count: number;
+    jpg_count: number;
+    matched_pairs: number;
+    unpaired_svgs: string[];
+    unpaired_jpgs: string[];
+  } | null>(null);
+  const [activeTab, setActiveTab] = useState<"FINDINGS" | "NETLIST" | "COMPONENTS" | "GAPS">("FINDINGS");
 
   // Human Review State
   const [reviewerComment, setReviewerComment] = useState("");
@@ -108,6 +116,12 @@ export default function QCReportDetailPage({
             }
             if (Array.isArray(r.flagged_gaps)) {
               setFlaggedGaps(r.flagged_gaps);
+            }
+            if (Array.isArray(r.components_detected)) {
+              setComponentsDetected(r.components_detected);
+            }
+            if (r.svg_jpg_pairing && typeof r.svg_jpg_pairing === "object") {
+              setSvgJpgPairing(r.svg_jpg_pairing);
             }
 
             const wCount =
@@ -985,6 +999,18 @@ export default function QCReportDetailPage({
           </button>
 
           <button
+            onClick={() => setActiveTab("COMPONENTS")}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === "COMPONENTS"
+                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent"
+            }`}
+          >
+            <span>Identified Components & SVG/JPG Pairing</span>
+            <Badge size="xs" variant="neutral">{componentsDetected.length}</Badge>
+          </button>
+
+          <button
             onClick={() => setActiveTab("GAPS")}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === "GAPS"
@@ -1235,6 +1261,73 @@ export default function QCReportDetailPage({
           ) : (
             <div className="p-8 text-center text-slate-400 font-mono text-xs">
               No candidate wire rows extracted yet for this schematic run.
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {activeTab === "COMPONENTS" && (
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Identified Circuit Symbols, Components & SVG/JPG Output Audit ({componentsDetected.length})
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Matched against IEEE/IEC circuit symbols and VDH component topology across SVG components and validated JPG outputs.
+            </p>
+          </div>
+          {svgJpgPairing && (
+            <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/60 border border-purple-500/40 text-purple-300">
+                SVG Components: {svgJpgPairing.svg_count}
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-300">
+                JPG Validated: {svgJpgPairing.jpg_count}
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300">
+                Matched Pairs: {svgJpgPairing.matched_pairs}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-[#0f172a] overflow-hidden">
+          {componentsDetected.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/90 text-slate-400 uppercase font-mono text-[10px] border-b border-slate-800">
+                  <tr>
+                    <th className="p-3.5">Designator</th>
+                    <th className="p-3.5">Circuit Symbol</th>
+                    <th className="p-3.5">Category</th>
+                    <th className="p-3.5">Sheet</th>
+                    <th className="p-3.5">Accurate Node Reference</th>
+                    <th className="p-3.5">Evidence</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80 font-mono">
+                  {componentsDetected.map((comp: any, idx: number) => (
+                    <tr key={`comp-${idx}`} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="p-3.5 font-bold text-cyan-400">{comp.designator}</td>
+                      <td className="p-3.5 text-slate-200">{comp.symbol_name}</td>
+                      <td className="p-3.5">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                          {comp.category}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-slate-400">{comp.sheet}</td>
+                      <td className="p-3.5 text-amber-300 text-[11px]">{comp.node_ref}</td>
+                      <td className="p-3.5 text-slate-400 text-[11px]">{comp.evidence || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-8 text-center text-slate-400 font-mono text-xs">
+              Upload Input PDF and Output SVG/JPG package to populate component symbol inventory.
             </div>
           )}
         </div>

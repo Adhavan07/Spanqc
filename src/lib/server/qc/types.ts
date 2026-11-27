@@ -94,6 +94,23 @@ export interface QCReport {
   will_not_work_count?: number;
   documentation_error_count?: number;
   circuit_impacts?: CircuitViabilityImpact[];
+  components_detected?: Array<{
+    designator: string;
+    symbol_code: string;
+    symbol_name: string;
+    category: string;
+    sheet: string;
+    node_ref: string;
+    source_type?: string;
+    evidence?: string;
+  }>;
+  svg_jpg_pairing?: {
+    svg_count: number;
+    jpg_count: number;
+    matched_pairs: number;
+    unpaired_svgs: string[];
+    unpaired_jpgs: string[];
+  } | null;
 }
 
 export interface QCJobCreationResponse {

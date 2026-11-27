@@ -36,6 +36,8 @@ from spanqc_core.standards.disciplines import detect_discipline
 from spanqc_core.score import calculate_compliance_score
 from spanqc_core.fontcheck import check_fonts
 from spanqc_core.visual_segmenter import extract_visual_segments_and_defects
+from spanqc_core.comparator import analyze_output_package
+from spanqc_core.symbols import detect_components_from_text_lines, detect_components_from_svg, enrich_finding_diagnostics
 
 
 def main():
@@ -43,6 +45,8 @@ def main():
     parser.add_argument("--file", required=True, help="Path to schematic file")
     parser.add_argument("--standard", default="SPANQC Tech Pub (Hyundai VDH)", help="Compliance Standard")
     parser.add_argument("--expected-netlist-json", default=None, help="Reference netlist JSON")
+    parser.add_argument("--output-file", default=None, help="Path to Output delivery ZIP/SVG/JPG")
+    parser.add_argument("--output-manifest-json", default=None, help="Path to output manifest JSON file")
     parser.add_argument("--specification-complete", action="store_true", default=False)
     parser.add_argument("--extraction-verified", action="store_true", default=False)
     args = parser.parse_args()
@@ -90,6 +94,8 @@ def main():
     pages_rendered: list[str] = []
     extra_findings: list[dict] = []
     failed_pages: list[int] = []
+    components_detected: list[dict] = []
+    seen_comp_keys: set[tuple[str, str]] = set()
 
     # 3. Process each page deterministically
     for page_idx in range(total_pages):
@@ -107,6 +113,22 @@ def main():
         # Extract text vectors
         text = page.get_text()
         page_lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+        # Identify electrical/electronic components from input sheet
+        for cm in detect_components_from_text_lines(page_lines, sheet_name=f"Input Page {page_num}"):
+            ck = (cm.sheet, cm.designator.upper())
+            if ck not in seen_comp_keys:
+                seen_comp_keys.add(ck)
+                components_detected.append({
+                    "designator": cm.designator,
+                    "symbol_code": cm.symbol_code,
+                    "symbol_name": cm.symbol_name,
+                    "category": cm.category,
+                    "sheet": cm.sheet,
+                    "node_ref": cm.node_ref,
+                    "source_type": cm.source_type,
+                    "evidence": cm.evidence,
+                })
 
         page_obs_count = 0
         for l in page_lines:
@@ -147,10 +169,12 @@ def main():
                     "id": d["id"],
                     "code": d["rule"],
                     "rule_code": d["rule"],
+                    "rule_id": d["rule"],
                     "title": d["title"],
                     "severity": d["severity"],
                     "outcome": FAIL if d["severity"] == "CRITICAL" else REVIEW,
                     "description": d["details"],
+                    "reason": d["details"],
                     "consequence": d.get("consequence", "WILL_NOT_WORK"),
                     "detected_value": d.get("observed", d["title"]),
                     "expected_value": d.get("expected", "Standard compliance"),
@@ -177,14 +201,59 @@ def main():
     # Merge defect findings
     findings.extend(extra_findings)
 
-    # Deduplicate findings by code and title
+    # 4B. Dual Comparative Analysis when Output SVG Components + JPG Validated Output provided
+    output_bytes = None
+    output_filename = None
+    output_manifest = None
+    if args.output_file and Path(args.output_file).is_file():
+        op = Path(args.output_file)
+        output_bytes = op.read_bytes()
+        output_filename = op.name
+    if args.output_manifest_json and Path(args.output_manifest_json).is_file():
+        try:
+            output_manifest = json.loads(Path(args.output_manifest_json).read_text(encoding="utf-8"))
+            if not output_filename and isinstance(output_manifest, dict):
+                output_filename = output_manifest.get("outputFilename")
+        except Exception:
+            output_manifest = None
+
+    comparison_mode = bool(output_bytes or output_manifest)
+    pkg_result = None
+    if comparison_mode:
+        oem_wire_dicts = [
+            {
+                "wire_no": o.wire_no,
+                "colour": o.colour,
+                "size_mm2": o.size,
+                "source": o.source,
+                "destination": o.destination,
+                "evidence_text": o.evidence,
+                "page": o.page,
+            }
+            for o in observations if o.wire_no
+        ]
+        pkg_result = analyze_output_package(
+            oem_wires=oem_wire_dicts,
+            output_bytes=output_bytes,
+            output_filename=output_filename,
+            output_manifest=output_manifest,
+            oem_filename=filename,
+        )
+        findings.extend(pkg_result["findings"])
+        for comp in pkg_result["components_detected"]:
+            ck = (comp["sheet"], comp["designator"].upper())
+            if ck not in seen_comp_keys:
+                seen_comp_keys.add(ck)
+                components_detected.append(comp)
+
+    # Deduplicate findings by code and title and enrich every finding with 5-part diagnostics
     unique_findings = []
     seen_f = set()
     for f in findings:
-        k = (f.get("code") or f.get("rule_code"), f.get("title"), f.get("page"))
+        k = (f.get("rule_id") or f.get("code") or f.get("rule_code"), f.get("title"), f.get("page"))
         if k not in seen_f:
             seen_f.add(k)
-            unique_findings.append(f)
+            unique_findings.append(enrich_finding_diagnostics(f, sheet_name=output_filename or filename))
 
     if any(f.get("outcome") == FAIL or f.get("severity") == "CRITICAL" for f in unique_findings):
         overall = FAIL
@@ -240,6 +309,14 @@ def main():
             }
             for o in observations[:150]
         ],
+        "components_detected": components_detected[:300],
+        "comparison_mode": comparison_mode,
+        "oem_master_document": filename,
+        "output_delivery_package": output_filename,
+        "svg_jpg_pairing": pkg_result["svg_jpg_pairing"] if pkg_result else None,
+        "will_work_count": pkg_result["will_work_count"] if pkg_result else None,
+        "will_not_work_count": pkg_result["will_not_work_count"] if pkg_result else None,
+        "documentation_error_count": pkg_result["documentation_error_count"] if pkg_result else None,
         "pages_rendered": pages_rendered,
         "total_page_count": total_pages,
         "processed_page_count": processed_pages,

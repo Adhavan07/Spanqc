@@ -196,3 +196,284 @@ def run_oem_vs_human_comparison(
         "csv_report_path": str(output_csv_path) if output_csv_path else None,
     }
 
+
+def analyze_output_package(
+    *,
+    oem_wires: List[Dict[str, Any]],
+    output_bytes: Optional[bytes] = None,
+    output_filename: Optional[str] = None,
+    output_manifest: Optional[Dict[str, Any]] = None,
+    oem_filename: str = "INPUT.pdf",
+) -> Dict[str, Any]:
+    """Unpack and validate Output SVG component sheets + JPG validated output sheets one by one,
+    then compare against Input OEM wires/components with full root-cause and node-ref diagnostics."""
+    import io
+    import os
+    import re
+    import tempfile
+    import zipfile
+    import pymupdf
+    from .fontcheck import check_fonts
+    from .rules import FAIL, REVIEW, _finding
+    from .symbols import (
+        detect_components_from_svg,
+        detect_components_from_text_lines,
+        enrich_finding_diagnostics,
+    )
+    from .wirecodes import WireLabel
+
+    svg_entries: Dict[str, Tuple[str, bytes]] = {}
+    jpg_entries: Dict[str, Tuple[str, bytes]] = {}
+
+    if output_bytes:
+        head = output_bytes[:8]
+        lower_out = (output_filename or "").lower()
+        if head.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")) or lower_out.endswith(".zip"):
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(output_bytes))
+                for info in sorted(zf.infolist(), key=lambda x: x.filename.lower()):
+                    name = info.filename
+                    if info.is_dir() or name.startswith("__MACOSX/") or "/." in name or name.startswith("."):
+                        continue
+                    base = name.split("/")[-1]
+                    stem = base.rsplit(".", 1)[0].lower() if "." in base else base.lower()
+                    ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+                    data = zf.read(info)
+                    if ext == "svg":
+                        svg_entries[stem] = (base, data)
+                    elif ext in {"jpg", "jpeg", "png", "webp"}:
+                        jpg_entries[stem] = (base, data)
+            except Exception:
+                pass
+        elif lower_out.endswith(".svg") or b"<svg" in output_bytes[:1024].lower():
+            stem = (output_filename or "sheet").rsplit(".", 1)[0].lower()
+            svg_entries[stem] = (output_filename or "sheet.svg", output_bytes)
+        elif lower_out.endswith((".jpg", ".jpeg", ".png", ".webp")):
+            stem = (output_filename or "sheet").rsplit(".", 1)[0].lower()
+            jpg_entries[stem] = (output_filename or "sheet.jpg", output_bytes)
+
+    # Also ingest sheet names from manifest if ZIP binary wasn't attached (e.g. large bundle)
+    if output_manifest and not svg_entries and not jpg_entries:
+        for sname in output_manifest.get("sheetNames", []) or []:
+            base = str(sname).split("/")[-1]
+            stem = base.rsplit(".", 1)[0].lower() if "." in base else base.lower()
+            ext = base.rsplit(".", 1)[-1].lower() if "." in base else ""
+            if ext == "svg":
+                svg_entries[stem] = (base, b"")
+            elif ext in {"jpg", "jpeg", "png", "webp"}:
+                jpg_entries[stem] = (base, b"")
+
+    human_wires: List[Dict[str, Any]] = []
+    components_detected: List[Dict[str, Any]] = []
+    extra_findings: List[Dict[str, Any]] = []
+    seen_comp_keys: set[Tuple[str, str]] = set()
+    page_counter = 0
+
+    # 1. One-by-one JPG validated output image verification
+    validated_jpg_sheets: List[Dict[str, Any]] = []
+    for stem, (jpg_name, jpg_data) in sorted(jpg_entries.items()):
+        if jpg_data:
+            try:
+                doc = pymupdf.open(stream=jpg_data, filetype="jpeg" if jpg_name.lower().endswith(("jpg", "jpeg")) else "png")
+                pix = doc[0].get_pixmap()
+                validated_jpg_sheets.append({"sheet": jpg_name, "stem": stem, "width": pix.width, "height": pix.height, "valid": True})
+            except Exception as exc:
+                validated_jpg_sheets.append({"sheet": jpg_name, "stem": stem, "valid": False, "error": str(exc)})
+                f = _finding(
+                    "LMS-12", "Corrupted Validated Output Image", FAIL,
+                    f"Output JPG '{jpg_name}' could not be decoded",
+                    f"Validated output image '{jpg_name}' failed integrity decode: {exc}.",
+                    expected="Valid readable JPG/PNG schematic image",
+                    detected=f"Unreadable image ({exc})",
+                    evidence=jpg_name,
+                    page=1,
+                    confidence=0.99,
+                )
+                f["node_reference_oem"] = f"Input OEM ({oem_filename}): Sheet matching '{stem}'"
+                f["node_reference_redraw"] = f"Output JPG Folder: {jpg_name}"
+                f["root_cause"] = f"Image file '{jpg_name}' inside JPG output folder is truncated or corrupted."
+                f["future_problem"] = "Technicians opening this validated output sheet in production/service viewers will see a broken image."
+                f["remediation_required"] = f"Re-export '{jpg_name}' cleanly from the source CAD/SVG component sheet '{stem}.svg'."
+                extra_findings.append(enrich_finding_diagnostics(f, jpg_name))
+        else:
+            validated_jpg_sheets.append({"sheet": jpg_name, "stem": stem, "valid": True})
+
+    # 2. One-by-one SVG component analysis
+    for stem, (svg_name, svg_data) in sorted(svg_entries.items()):
+        page_counter += 1
+        if svg_data:
+            obs_list, unc_list, fnd_list = parse_svg_sheet_full(svg_data, page_number=page_counter)
+            sym_info = detect_components_from_svg(svg_data, sheet_name=svg_name)
+
+            for cm in sym_info.get("components", []):
+                ckey = (cm.sheet, cm.designator.upper())
+                if ckey not in seen_comp_keys:
+                    seen_comp_keys.add(ckey)
+                    components_detected.append({
+                        "designator": cm.designator,
+                        "symbol_code": cm.symbol_code,
+                        "symbol_name": cm.symbol_name,
+                        "category": cm.category,
+                        "sheet": cm.sheet,
+                        "node_ref": cm.node_ref,
+                        "source_type": cm.source_type,
+                        "evidence": cm.evidence,
+                    })
+
+            # Check font sizes on SVG
+            with tempfile.NamedTemporaryFile("wb", suffix=".svg", delete=False) as tmp:
+                tmp.write(svg_data)
+                tmp_path = tmp.name
+            font_violations = []
+            try:
+                font_violations = check_fonts(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+            for v in font_violations:
+                f = _finding(
+                    "LMS-11", "Font Standard Violation", REVIEW,
+                    f"Font size deviation in {v.category}: '{v.text}'",
+                    f"Hyundai VDH drafting standard requires {v.expected_px}px for {v.category}, found {v.found_px}px in '{svg_name}'.",
+                    expected=f"{v.expected_px}px",
+                    detected=f"{v.found_px}px",
+                    evidence=v.text,
+                    page=page_counter,
+                    confidence=0.99,
+                )
+                extra_findings.append(enrich_finding_diagnostics(f, svg_name))
+
+            for fnd in fnd_list:
+                extra_findings.append(enrich_finding_diagnostics(fnd, svg_name))
+
+            texts = [t.text for t in svg_texts(io.BytesIO(svg_data))] if False else []
+            sheet_fuses = [cm.designator for cm in sym_info.get("components", []) if cm.symbol_code == "FUSE"]
+
+            for o in obs_list:
+                human_wires.append({
+                    "wire_no": o.wire_no,
+                    "colour": o.colour,
+                    "size_mm2": o.size,
+                    "source": svg_name,
+                    "source_comp": o.source or svg_name,
+                    "destination": o.destination,
+                    "dest_comp": o.destination,
+                    "page": page_counter,
+                    "evidence_text": o.evidence,
+                    "is_malformed": o.confidence == 0.0,
+                    "malformed_reason": "Missing slash in color code" if "BKWH" in (o.evidence or "") else "",
+                    "fuses_detected": sheet_fuses,
+                })
+
+    # 3. Also process manifest extractedLines (captures SVGs when raw binary exceeds payload threshold)
+    manifest_lines = (output_manifest or {}).get("extractedLines") or []
+    if manifest_lines:
+        for cm in detect_components_from_text_lines(manifest_lines, sheet_name=output_filename or "Manifest"):
+            ckey = (cm.sheet, cm.designator.upper())
+            if ckey not in seen_comp_keys:
+                seen_comp_keys.add(ckey)
+                components_detected.append({
+                    "designator": cm.designator,
+                    "symbol_code": cm.symbol_code,
+                    "symbol_name": cm.symbol_name,
+                    "category": cm.category,
+                    "sheet": cm.sheet,
+                    "node_ref": cm.node_ref,
+                    "source_type": cm.source_type,
+                    "evidence": cm.evidence,
+                })
+
+        if not svg_entries or all(not d for _, d in svg_entries.values()):
+            for raw_line in manifest_lines:
+                m_pref = re.match(r"^\[([^\]]+)\]\s*(.+)$", str(raw_line))
+                sheet_lbl = m_pref.group(1).strip() if m_pref else (output_filename or "Output")
+                txt = m_pref.group(2).strip() if m_pref else str(raw_line).strip()
+                lab = WireLabel.parse(txt)
+                if lab:
+                    human_wires.append({
+                        "wire_no": lab.wire_no,
+                        "colour": lab.colour,
+                        "size_mm2": lab.size,
+                        "source": sheet_lbl,
+                        "source_comp": sheet_lbl,
+                        "destination": None,
+                        "page": 1,
+                        "evidence_text": raw_line,
+                        "is_malformed": False,
+                        "fuses_detected": [t for t in txt.split() if re.match(r"^F\d+$", t, re.I)],
+                    })
+
+    # 4. SVG <-> JPG Pairing Verification
+    svg_stems = set(svg_entries.keys())
+    jpg_stems = set(jpg_entries.keys())
+    matched_stems = sorted(svg_stems & jpg_stems)
+    unpaired_svgs = sorted(svg_stems - jpg_stems)
+    unpaired_jpgs = sorted(jpg_stems - svg_stems)
+
+    if svg_stems and jpg_stems:
+        for us in unpaired_svgs[:5]:
+            svg_fn = svg_entries[us][0]
+            f = _finding(
+                "LMS-12", "Missing Validated JPG Output", REVIEW,
+                f"Component SVG '{svg_fn}' has no matching validated JPG output",
+                f"Output package contains component vector sheet '{svg_fn}', but no corresponding '{us}.jpg' exists in the validated JPG output set.",
+                expected=f"Paired {svg_fn} + {us}.jpg",
+                detected=f"{svg_fn} only (JPG output missing)",
+                evidence=svg_fn,
+                page=1,
+                confidence=0.95,
+            )
+            f["node_reference_oem"] = f"Input OEM ({oem_filename}): Sheet '{us}'"
+            f["node_reference_redraw"] = f"Output Package: '{svg_fn}' present; JPG missing"
+            f["root_cause"] = f"Component SVG '{svg_fn}' was saved/updated without exporting its validated JPG output into the jpg folder."
+            f["future_problem"] = "Delivery package is incomplete; customer viewer showing JPG sheets will skip this sheet entirely."
+            f["remediation_required"] = f"Export '{us}.jpg' from component drawing '{svg_fn}' and include it in the output jpg folder."
+            extra_findings.append(enrich_finding_diagnostics(f, svg_fn))
+
+        for uj in unpaired_jpgs[:5]:
+            jpg_fn = jpg_entries[uj][0]
+            f = _finding(
+                "LMS-12", "Orphan JPG Output Without Component SVG", REVIEW,
+                f"Validated JPG '{jpg_fn}' has no matching component SVG",
+                f"JPG folder contains '{jpg_fn}', but no matching vector component file '{uj}.svg' was supplied for deterministic node/symbol verification.",
+                expected=f"Paired {uj}.svg + {jpg_fn}",
+                detected=f"{jpg_fn} only (SVG component source missing)",
+                evidence=jpg_fn,
+                page=1,
+                confidence=0.95,
+            )
+            f["node_reference_oem"] = f"Input OEM ({oem_filename}): Sheet '{uj}'"
+            f["node_reference_redraw"] = f"Output Package: '{jpg_fn}' present; SVG source missing"
+            f["root_cause"] = f"Raster JPG '{jpg_fn}' was exported or renamed without its corresponding editable SVG component file."
+            f["future_problem"] = "Vector symbol/font/netlist edits cannot be maintained if source SVG is missing or renamed."
+            f["remediation_required"] = f"Include matching '{uj}.svg' component file alongside '{jpg_fn}' in the delivery bundle."
+            extra_findings.append(enrich_finding_diagnostics(f, jpg_fn))
+
+    # 5. Execute OEM vs Human topological diff
+    diff_result = diff_oem_vs_human_netlists(
+        oem_wires=oem_wires,
+        human_wires=human_wires,
+        document_name=oem_filename,
+    )
+
+    combined_findings = list(diff_result.findings) + extra_findings
+
+    return {
+        "human_wires": human_wires,
+        "components_detected": components_detected,
+        "findings": combined_findings,
+        "will_work_count": diff_result.will_work_count,
+        "will_not_work_count": diff_result.will_not_work_count,
+        "documentation_error_count": diff_result.documentation_error_count,
+        "svg_jpg_pairing": {
+            "svg_count": len(svg_entries),
+            "jpg_count": len(jpg_entries),
+            "matched_pairs": len(matched_stems),
+            "unpaired_svgs": unpaired_svgs,
+            "unpaired_jpgs": unpaired_jpgs,
+            "validated_jpgs": validated_jpg_sheets,
+        },
+    }
+
+

@@ -16,12 +16,14 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from . import __version__
 from .classify import ComponentIndex, classify_destination
+from .comparator import analyze_output_package
 from .extract import AnthropicClient, ExtractionClient, extract_sheet
 from .fontcheck import check_fonts
 from .rules import Expected, Observation, evaluate, FAIL, PASS, REVIEW, _finding
 from .score import calculate_compliance_score
 from .standards.disciplines import detect_discipline
 from .svg_truth import malformed_labels
+from .symbols import detect_components_from_svg, detect_components_from_text_lines, enrich_finding_diagnostics
 from .wirecodes import WireLabel, norm_colour
 
 MAX_BYTES = 100 * 1024 * 1024
@@ -210,10 +212,28 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
     async def analyze(file: UploadFile = File(...), standard: str = Form("SPANQC Tech Pub (Hyundai VDH)"),
                       expected_netlist_json: Optional[str] = Form(None), specification_is_complete: bool = Form(False),
                       extraction_is_verified: bool = Form(False), scope_description: Optional[str] = Form(None),
-                      prompt_version: str = Form("extract_v1")):
+                      prompt_version: str = Form("extract_v1"),
+                      output_file: Optional[UploadFile] = File(None),
+                      output_manifest_json: Optional[str] = Form(None)):
         data = await file.read()
         if len(data) > MAX_BYTES:
             raise HTTPException(413, "File too large.")
+
+        output_bytes: Optional[bytes] = None
+        output_filename: Optional[str] = None
+        if output_file is not None:
+            output_bytes = await output_file.read()
+            output_filename = output_file.filename
+
+        output_manifest: Optional[dict] = None
+        if output_manifest_json:
+            try:
+                output_manifest = json.loads(output_manifest_json)
+                if not output_filename and isinstance(output_manifest, dict):
+                    output_filename = output_manifest.get("outputFilename")
+            except Exception:
+                output_manifest = None
+
         expected = _parse_expected(expected_netlist_json)
         pages = _pages(data, file.filename or "document")
         has_vector = any(getattr(p, "svg_raw", None) is not None or bool(getattr(p, "text_raw", None) and p.text_raw.strip()) for p in pages)
@@ -232,6 +252,8 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
         errors: List[str] = []
         pages_rendered: List[str] = []
         extra_findings: List[dict] = []
+        oem_components: List[dict] = []
+        seen_oem_comps: set = set()
         version = prompt_version
 
         import pymupdf
@@ -276,6 +298,21 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
                     svg_obs, svg_unc, svg_fnd = parse_svg_sheet_full(page.svg_raw, page_number=n)
                     extra_findings.extend(svg_fnd)
                     uncertain.extend(svg_unc)
+                    sym_info = detect_components_from_svg(page.svg_raw, sheet_name=page.name or f"Sheet {n}")
+                    for cm in sym_info.get("components", []):
+                        ck = (cm.sheet, cm.designator.upper())
+                        if ck not in seen_oem_comps:
+                            seen_oem_comps.add(ck)
+                            oem_components.append({
+                                "designator": cm.designator,
+                                "symbol_code": cm.symbol_code,
+                                "symbol_name": cm.symbol_name,
+                                "category": cm.category,
+                                "sheet": cm.sheet,
+                                "node_ref": cm.node_ref,
+                                "source_type": cm.source_type,
+                                "evidence": cm.evidence,
+                            })
                 except Exception:
                     pass
 
@@ -283,6 +320,20 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
             if getattr(page, "text_raw", None) and not page.svg_raw:
                 import re
                 lines = [l.strip() for l in page.text_raw.splitlines() if l.strip()]
+                for cm in detect_components_from_text_lines(lines, sheet_name=page.name or f"Page {n}"):
+                    ck = (cm.sheet, cm.designator.upper())
+                    if ck not in seen_oem_comps:
+                        seen_oem_comps.add(ck)
+                        oem_components.append({
+                            "designator": cm.designator,
+                            "symbol_code": cm.symbol_code,
+                            "symbol_name": cm.symbol_name,
+                            "category": cm.category,
+                            "sheet": cm.sheet,
+                            "node_ref": cm.node_ref,
+                            "source_type": cm.source_type,
+                            "evidence": cm.evidence,
+                        })
                 for l in lines:
                     lab = WireLabel.parse(l)
                     if lab:
@@ -332,6 +383,40 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
 
         # Merge deterministic font & malformed label findings
         findings.extend(extra_findings)
+
+        # Dual Comparative Analysis: Input OEM vs Output SVG Components + JPG Validated Output
+        comparison_mode = bool(output_bytes or output_manifest)
+        pkg_result: Optional[dict] = None
+        if comparison_mode:
+            oem_wire_dicts = [
+                {
+                    "wire_no": o.wire_no,
+                    "colour": o.colour,
+                    "size_mm2": o.size,
+                    "source": o.source,
+                    "destination": o.destination,
+                    "evidence_text": o.evidence,
+                    "page": o.page,
+                }
+                for o in observations if o.wire_no
+            ]
+            pkg_result = analyze_output_package(
+                oem_wires=oem_wire_dicts,
+                output_bytes=output_bytes,
+                output_filename=output_filename,
+                output_manifest=output_manifest,
+                oem_filename=file.filename or "INPUT.pdf",
+            )
+            findings.extend(pkg_result["findings"])
+            for comp in pkg_result["components_detected"]:
+                ck = (comp["sheet"], comp["designator"].upper())
+                if ck not in seen_oem_comps:
+                    seen_oem_comps.add(ck)
+                    oem_components.append(comp)
+
+        # Enrich all findings with full 5-part root-cause, node-ref, future-problem & remediation diagnostics
+        findings = [enrich_finding_diagnostics(f, sheet_name=output_filename or (file.filename or "Sheet")) for f in findings]
+
         if any(f["outcome"] == FAIL for f in findings):
             overall = FAIL
         elif findings or not specification_is_complete or (len(failed) > 0):
@@ -375,6 +460,14 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
             "rule_findings": findings,
             "candidate_observations": [
                 {**o.__dict__, "destination_class": classify_destination(o.destination, index).value} for o in observations],
+            "components_detected": oem_components,
+            "comparison_mode": comparison_mode,
+            "oem_master_document": file.filename or "document",
+            "output_delivery_package": output_filename,
+            "svg_jpg_pairing": pkg_result["svg_jpg_pairing"] if pkg_result else None,
+            "will_work_count": pkg_result["will_work_count"] if pkg_result else None,
+            "will_not_work_count": pkg_result["will_not_work_count"] if pkg_result else None,
+            "documentation_error_count": pkg_result["documentation_error_count"] if pkg_result else None,
             "flagged_gaps": uncertain,
             "page_errors": errors,
             "pages_rendered": pages_rendered,

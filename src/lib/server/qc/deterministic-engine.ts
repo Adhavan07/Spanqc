@@ -246,6 +246,114 @@ export interface OutputDeliveryManifest {
   sheetCount?: number;
   sheetNames?: string[];
   extractedLines?: string[];
+  svgCount?: number;
+  jpgCount?: number;
+}
+
+interface DetectedComponentSymbol {
+  designator: string;
+  symbol_code: string;
+  symbol_name: string;
+  category: string;
+  sheet: string;
+  node_ref: string;
+  source_type?: string;
+  evidence?: string;
+}
+
+function classifyCircuitDesignator(token: string): { code: string; name: string; category: string } | null {
+  const clean = token.trim().toUpperCase().replace(/\([^)]*\)$/, "");
+  if (!clean || clean.length < 2 || clean.length > 40) return null;
+
+  if (clean.includes(":")) {
+    return { code: "CONNECTOR_ECU", name: "Harness Connector Cross-Reference", category: "Harness Connectors & ECUs" };
+  }
+  if (/^KL\d+[A-Z]?$/.test(clean) || ["VCC", "VDD", "+24V", "+12V", "+5V", "BAT", "BATTERY"].includes(clean)) {
+    return { code: "DC_AC_SUPPLY", name: "DC / AC Power Supply & Rail", category: "Power Sources & Grounds" };
+  }
+  if (["GND", "EARTH", "PE", "VSS"].includes(clean)) {
+    return { code: "GROUND", name: "Earth / Signal / Chassis Ground", category: "Power Sources & Grounds" };
+  }
+  if (["CCAN", "CAN", "CAN_H", "CAN_L"].includes(clean) || clean.startsWith("BUS")) {
+    return { code: "BUS_LINE", name: "Bus Line / Differential Communication", category: "Connectivity & Wire Junctions" };
+  }
+  if (/^F\d+$/.test(clean) || clean === "FB1" || clean === "CFB1") {
+    return { code: "FUSE", name: "Fuse / Overcurrent Protection", category: "Protection, Switches & Relays" };
+  }
+  if (/^(CR|CK|CCR)-?\d+[A-Z]?$/.test(clean)) {
+    return { code: "RELAY", name: "Relay Coil & Contact Assembly", category: "Protection, Switches & Relays" };
+  }
+  if (/^(S|SW|PB|CS)-?\d*[A-Z]?$/.test(clean) && clean.length >= 2 && /\d/.test(clean)) {
+    return { code: "SWITCH", name: "Switch (SPST / SPDT / Pushbutton)", category: "Protection, Switches & Relays" };
+  }
+  if (/^(CN|CA)-?\d*[A-Z]?$/.test(clean) || ["CMCU", "CECM", "CA30", "CA80", "RDU", "CAC", "CIC", "CRMSU", "CAAVM", "CJST", "CAS"].includes(clean)) {
+    return { code: "CONNECTOR_ECU", name: "Harness Connector / ECU Module", category: "Harness Connectors & ECUs" };
+  }
+  if (/^(R|VR|POT|RT|RV)\d+$/.test(clean)) {
+    return { code: "RESISTOR", name: "Resistor / Potentiometer / Thermistor", category: "Passive Components" };
+  }
+  if (/^(C|CP|CE)\d+$/.test(clean)) {
+    return { code: "CAPACITOR", name: "Capacitor (Polarized / Ceramic / Electrolytic)", category: "Passive Components" };
+  }
+  if (/^(L|TX|TR|T)\d+$/.test(clean)) {
+    return { code: "INDUCTOR_TRANSFORMER", name: "Inductor / Transformer", category: "Passive Components" };
+  }
+  if (/^(D|DZ|ZD|LED)\d+$/.test(clean)) {
+    return { code: "DIODE_LED", name: "Diode / Zener / Schottky / LED", category: "Diodes, LEDs & Semiconductors" };
+  }
+  if (/^(Q|FET)\d+$/.test(clean)) {
+    return { code: "TRANSISTOR_OPAMP", name: "Transistor / MOSFET / Op-Amp", category: "Diodes, LEDs & Semiconductors" };
+  }
+  if (/^(U|IC|FF)\d+$/.test(clean)) {
+    return { code: "LOGIC_GATE", name: "Logic Gate / Digital IC", category: "Logic Gates & Digital ICs" };
+  }
+  if (/^(Y|X|XTAL)\d+$/.test(clean)) {
+    return { code: "CRYSTAL", name: "Crystal Oscillator", category: "Passive Components" };
+  }
+  if (["ALT", "STARTER"].includes(clean) || /^(M|MOT|CY|SOL|BZ|SPK|CL|CD)-?\d+[A-Z]?$/.test(clean)) {
+    return { code: "ACTUATOR_LOAD", name: "Motor / Solenoid / Lamp / Actuator", category: "Loads, Meters & Actuators" };
+  }
+  if (/^(VM|AM|ANT)\d+$/.test(clean)) {
+    return { code: "METER_ANTENNA", name: "Voltmeter / Ammeter / Antenna", category: "Loads, Meters & Actuators" };
+  }
+  return null;
+}
+
+function detectComponentSymbolsFromLines(lines: string[], defaultSheet: string): DetectedComponentSymbol[] {
+  const out: DetectedComponentSymbol[] = [];
+  const seen = new Set<string>();
+  const prefixRe = /^\[([^\]]+)\]\s*(.+)$/;
+
+  for (const raw of lines) {
+    let sheet = defaultSheet;
+    let body = raw.trim();
+    const pm = body.match(prefixRe);
+    if (pm) {
+      sheet = pm[1].trim();
+      body = pm[2].trim();
+    }
+    const tokens = [body, ...body.split(/[\s,;]+/)].filter(Boolean);
+    for (const tok of tokens) {
+      const sym = classifyCircuitDesignator(tok);
+      if (sym) {
+        const key = `${sheet}:${tok.toUpperCase()}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({
+            designator: tok,
+            symbol_code: sym.code,
+            symbol_name: sym.name,
+            category: sym.category,
+            sheet,
+            node_ref: `${sheet}:${tok}`,
+            source_type: "vector_text",
+            evidence: raw.trim(),
+          });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** Structured parsed data from one SVG sheet. */
@@ -493,6 +601,16 @@ export async function executeDeterministicAnalysis(
 ): Promise<QCReport> {
   const oemLines = extractTextLinesFromBuffer(documentBuffer);
   let { wires: oemWires, anomalies: oemAnomalies } = extractWireLabels(oemLines);
+  const componentsDetected: DetectedComponentSymbol[] = detectComponentSymbolsFromLines(
+    oemLines,
+    job.documentName
+  );
+  const seenCompKeys = new Set(componentsDetected.map((c) => `${c.sheet}:${c.designator.toUpperCase()}`));
+
+  const svgStems = new Set<string>();
+  const jpgStems = new Set<string>();
+  const svgNameByStem = new Map<string, string>();
+  const jpgNameByStem = new Map<string, string>();
 
   // Parse Redrawn Delivery Output if provided (either via lightweight manifest or raw binary buffer)
   let outputSheetsCount = 0;
@@ -504,7 +622,29 @@ export async function executeDeterministicAnalysis(
 
   if (outputManifest && hasManifest) {
     outputSheetsCount = outputManifest.sheetCount || outputManifest.sheetNames?.length || 1;
+    for (const sname of outputManifest.sheetNames || []) {
+      const base = path.basename(sname);
+      const ext = path.extname(base).toLowerCase();
+      const stem = base.replace(/\.[^.]+$/, "").toLowerCase();
+      if (ext === ".svg") {
+        svgStems.add(stem);
+        svgNameByStem.set(stem, base);
+      } else if ([".jpg", ".jpeg", ".png", ".webp"].includes(ext)) {
+        jpgStems.add(stem);
+        jpgNameByStem.set(stem, base);
+      }
+    }
     if (outputManifest.extractedLines && outputManifest.extractedLines.length > 0) {
+      for (const cm of detectComponentSymbolsFromLines(
+        outputManifest.extractedLines,
+        outputManifest.outputFilename || "Output Package"
+      )) {
+        const k = `${cm.sheet}:${cm.designator.toUpperCase()}`;
+        if (!seenCompKeys.has(k)) {
+          seenCompKeys.add(k);
+          componentsDetected.push(cm);
+        }
+      }
       // Try structured [SheetName] parsing first
       const hasStructuredLines = outputManifest.extractedLines.some((l) => /^\[.+\]/.test(l));
       if (hasStructuredLines) {
@@ -539,7 +679,17 @@ export async function executeDeterministicAnalysis(
         const structuredLines: string[] = [];
         for (const [entryName, entryFile] of entries) {
           const lower = entryName.toLowerCase();
-          const sheetLabel = path.basename(entryName).replace(/\.svg$/i, "");
+          const base = path.basename(entryName);
+          const ext = path.extname(base).toLowerCase();
+          const stem = base.replace(/\.[^.]+$/, "").toLowerCase();
+          if (ext === ".svg") {
+            svgStems.add(stem);
+            svgNameByStem.set(stem, base);
+          } else if ([".jpg", ".jpeg", ".png", ".webp"].includes(ext)) {
+            jpgStems.add(stem);
+            jpgNameByStem.set(stem, base);
+          }
+          const sheetLabel = base.replace(/\.svg$/i, "");
           if (lower.endsWith(".svg")) {
             const svgText = await entryFile.async("string");
             const tspans = svgText.match(/<tspan[^>]*>([^<]+)<\/tspan>/g) || [];
@@ -843,7 +993,98 @@ export async function executeDeterministicAnalysis(
       page_number: 1,
       human_review_required: true,
       circuit_impact: anomImpact,
+      root_cause: `Manual text typing omitted the '/' bi-colour delimiter in wire label '${anom}' during CAD redraw capture.`,
+      node_reference_oem: `Input OEM (${job.documentName}): Standard slash-delimited bi-colour specification`,
+      node_reference_redraw: `Output Package (${effectiveOutputName || "Sheet"}): Printed literal '${anom}'`,
+      future_problem: "Assembly shop technicians or automated wire cutting machines may misparse the colour code and pull the wrong wire spool.",
+      remediation_required: `Insert standard slash separator in wire callout '${anom}' (e.g. BK/WH) on the SVG component sheet and re-export JPG.`,
     });
+  }
+
+  // 3B. SVG Component <-> Validated JPG Output Pairing Check
+  const matchedStems = Array.from(svgStems).filter((s) => jpgStems.has(s));
+  const unpairedSvgs = Array.from(svgStems).filter((s) => !jpgStems.has(s));
+  const unpairedJpgs = Array.from(jpgStems).filter((s) => !svgStems.has(s));
+  const svgJpgPairing =
+    svgStems.size > 0 || jpgStems.size > 0
+      ? {
+          svg_count: svgStems.size,
+          jpg_count: jpgStems.size,
+          matched_pairs: matchedStems.length,
+          unpaired_svgs: unpairedSvgs,
+          unpaired_jpgs: unpairedJpgs,
+        }
+      : null;
+
+  if (svgStems.size > 0 && jpgStems.size > 0) {
+    for (const us of unpairedSvgs.slice(0, 5)) {
+      const svgFile = svgNameByStem.get(us) || `${us}.svg`;
+      documentationErrorCount++;
+      const pairImpact: CircuitViabilityImpact = {
+        status: "DEFECTIVE DOCUMENTATION (OPERATIONAL RISK)",
+        will_work: true,
+        circuit_consequence: "Component topology exists in vector SVG, but validated JPG visual sheet is missing from output package.",
+        safety_hazard: "LOW RISK: Incomplete delivery package.",
+        remediation_required: `Export '${us}.jpg' from component SVG '${svgFile}' into the JPG folder.`,
+        severity: "MEDIUM",
+      };
+      circuitImpacts.push(pairImpact);
+      findings.push({
+        finding_id: `find_${randomUUID().slice(0, 8)}`,
+        rule_id: "LMS-12",
+        rule_name: "SVG Component / JPG Output Pairing",
+        standard_reference: `${job.standard} Packaging Standard`,
+        severity: "MEDIUM",
+        outcome: "REVIEW",
+        title: `Component SVG '${svgFile}' Missing Validated JPG Output`,
+        reason: `Component vector SVG '${svgFile}' was found, but matching '${us}.jpg' is absent from the JPG output folder.`,
+        expected_value: `Paired ${svgFile} + ${us}.jpg`,
+        detected_value: `${svgFile} only (JPG missing)`,
+        evidence_text: svgFile,
+        page_number: 1,
+        human_review_required: true,
+        circuit_impact: pairImpact,
+        root_cause: `Component SVG sheet '${svgFile}' was modified or exported without regenerating its matching JPG image.`,
+        node_reference_oem: `Input OEM (${job.documentName}): Sheet '${us}'`,
+        node_reference_redraw: `Output Package: SVG '${svgFile}' present; JPG folder missing '${us}.jpg'`,
+        future_problem: "Service manual viewers that display the JPG folder will skip this sheet entirely during field troubleshooting.",
+        remediation_required: `Render '${svgFile}' to '${us}.jpg' and include it in the output JPG folder.`,
+      });
+    }
+    for (const uj of unpairedJpgs.slice(0, 5)) {
+      const jpgFile = jpgNameByStem.get(uj) || `${uj}.jpg`;
+      documentationErrorCount++;
+      const pairImpact: CircuitViabilityImpact = {
+        status: "DEFECTIVE DOCUMENTATION (OPERATIONAL RISK)",
+        will_work: true,
+        circuit_consequence: "Validated JPG sheet cannot be traced to an editable SVG component definition.",
+        safety_hazard: "LOW RISK: Unverified visual render without SVG vector truth.",
+        remediation_required: `Include source '${uj}.svg' component file alongside '${jpgFile}'.`,
+        severity: "MEDIUM",
+      };
+      circuitImpacts.push(pairImpact);
+      findings.push({
+        finding_id: `find_${randomUUID().slice(0, 8)}`,
+        rule_id: "LMS-12",
+        rule_name: "SVG Component / JPG Output Pairing",
+        standard_reference: `${job.standard} Packaging Standard`,
+        severity: "MEDIUM",
+        outcome: "REVIEW",
+        title: `Validated JPG '${jpgFile}' Missing Source Component SVG`,
+        reason: `JPG folder contains '${jpgFile}', but no matching SVG component definition '${uj}.svg' exists for deterministic pin/symbol validation.`,
+        expected_value: `Paired ${uj}.svg + ${jpgFile}`,
+        detected_value: `${jpgFile} only (SVG component file missing)`,
+        evidence_text: jpgFile,
+        page_number: 1,
+        human_review_required: true,
+        circuit_impact: pairImpact,
+        root_cause: `Raster output '${jpgFile}' was exported or renamed without its companion '${uj}.svg' component vector file.`,
+        node_reference_oem: `Input OEM (${job.documentName}): Sheet '${uj}'`,
+        node_reference_redraw: `Output Package: JPG '${jpgFile}' present; SVG component file missing`,
+        future_problem: "Future engineering revisions cannot edit components cleanly without the matching SVG vector source.",
+        remediation_required: `Export and attach '${uj}.svg' alongside '${jpgFile}' in the delivery bundle.`,
+      });
+    }
   }
 
   // 4. Expected Netlist Comparison (if custom netlist supplied)
@@ -893,6 +1134,11 @@ export async function executeDeterministicAnalysis(
           page_number: 1,
           human_review_required: false,
           circuit_impact: netMissingImpact,
+          root_cause: `Reference conductor net [${expNo}] (${exp.source || "Source"} -> ${exp.destination || "Destination"}) was omitted from drafted schematic sheets.`,
+          node_reference_oem: `Reference Netlist: Wire ${expNo} [${exp.source || "Source"} -> ${exp.destination || "Destination"}]`,
+          node_reference_redraw: `Output (${effectiveOutputName || "Schematic"}): Net ${expNo} not found`,
+          future_problem: `Connected component at '${exp.destination || "destination node"}' will fail to receive signal or power during machine operation.`,
+          remediation_required: `Restore missing wire net '${expNo} ${exp.colour || ""} ${exp.size_mm2 || ""}' connecting ${exp.source || "source"} to ${exp.destination || "destination"}.`,
         });
       }
     }
@@ -949,5 +1195,7 @@ export async function executeDeterministicAnalysis(
     will_not_work_count: willNotWorkCount,
     documentation_error_count: documentationErrorCount,
     circuit_impacts: circuitImpacts,
+    components_detected: componentsDetected.slice(0, 300),
+    svg_jpg_pairing: svgJpgPairing,
   };
 }

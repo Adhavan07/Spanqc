@@ -391,6 +391,12 @@ function fallbackCsvExport(report: QCRun): void {
       "Severity",
       "Title",
       "Description",
+      "Input Node Ref (OEM)",
+      "Output Node Ref (SVG/JPG)",
+      "Will Circuit Work?",
+      "Root Cause Origin",
+      "Future Operational Problem",
+      "How to Fix (Remediation)",
       "Standard Reference",
       "Observed Fact (Detected)",
       "Standard Requirement (Expected)",
@@ -403,12 +409,23 @@ function fallbackCsvExport(report: QCRun): void {
   ];
 
   findings.forEach((f) => {
+    const willWorkStr = f.circuit_impact
+      ? f.circuit_impact.will_work
+        ? "YES - OPERATIVE"
+        : "NO - WILL NOT WORK"
+      : "REVIEW";
     rows.push([
       f.id,
       f.code,
       f.severity,
       `"${f.title.replace(/"/g, '""')}"`,
       `"${f.description.replace(/"/g, '""')}"`,
+      `"${(f.node_reference_oem || f.expected_value || "").replace(/"/g, '""')}"`,
+      `"${(f.node_reference_redraw || f.detected_value || "").replace(/"/g, '""')}"`,
+      willWorkStr,
+      `"${(f.root_cause || "").replace(/"/g, '""')}"`,
+      `"${(f.future_problem || "").replace(/"/g, '""')}"`,
+      `"${(f.remediation_required || f.recommended_remediation || "").replace(/"/g, '""')}"`,
       `"${f.standard_reference.replace(/"/g, '""')}"`,
       `"${f.detected_value.replace(/"/g, '""')}"`,
       `"${f.expected_value.replace(/"/g, '""')}"`,

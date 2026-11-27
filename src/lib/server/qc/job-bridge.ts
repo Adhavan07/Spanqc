@@ -471,6 +471,8 @@ export function validateAndSanitizeReport(
     will_not_work_count: typeof obj.will_not_work_count === "number" ? obj.will_not_work_count : undefined,
     documentation_error_count: typeof obj.documentation_error_count === "number" ? obj.documentation_error_count : undefined,
     circuit_impacts: Array.isArray(obj.circuit_impacts) ? (obj.circuit_impacts as any) : undefined,
+    components_detected: Array.isArray(obj.components_detected) ? (obj.components_detected as any) : undefined,
+    svg_jpg_pairing: (obj.svg_jpg_pairing && typeof obj.svg_jpg_pairing === "object") ? (obj.svg_jpg_pairing as any) : undefined,
   };
 }
 
@@ -657,6 +659,14 @@ export async function processQCJob(
     formData.append("file", blob, job.documentName);
     formData.append("standard", job.standard);
 
+    if (outputFileBuffer && outputFileBuffer.length > 0) {
+      const outBlob = new Blob([new Uint8Array(outputFileBuffer)]);
+      formData.append("output_file", outBlob, outputFilename || "delivery_output_package.zip");
+    }
+    if (outputManifest) {
+      formData.append("output_manifest_json", JSON.stringify(outputManifest));
+    }
+
     if (job.expectedNetlistJson) {
       formData.append("expected_netlist_json", job.expectedNetlistJson);
     }
@@ -751,12 +761,26 @@ export async function processQCJob(
           const tempDocPath = path.join(os.tmpdir(), `qc_doc_${Date.now()}_${safeName}`);
           await fs.writeFile(tempDocPath, documentBuffer);
 
+          let tempOutPath: string | null = null;
+          let tempManifestPath: string | null = null;
+
           try {
             const args = [
               cliScript,
               "--file", tempDocPath,
               "--standard", job.standard,
             ];
+            if (outputFileBuffer && outputFileBuffer.length > 0) {
+              const safeOut = (outputFilename || "output.zip").replace(/[^a-zA-Z0-9._-]/g, "_");
+              tempOutPath = path.join(os.tmpdir(), `qc_out_${Date.now()}_${safeOut}`);
+              await fs.writeFile(tempOutPath, outputFileBuffer);
+              args.push("--output-file", tempOutPath);
+            }
+            if (outputManifest) {
+              tempManifestPath = path.join(os.tmpdir(), `qc_manifest_${Date.now()}.json`);
+              await fs.writeFile(tempManifestPath, JSON.stringify(outputManifest), "utf-8");
+              args.push("--output-manifest-json", tempManifestPath);
+            }
             if (job.expectedNetlistJson) {
               args.push("--expected-netlist-json", job.expectedNetlistJson);
             }
@@ -783,6 +807,8 @@ export async function processQCJob(
             }
           } finally {
             await fs.unlink(tempDocPath).catch(() => {});
+            if (tempOutPath) await fs.unlink(tempOutPath).catch(() => {});
+            if (tempManifestPath) await fs.unlink(tempManifestPath).catch(() => {});
           }
         } catch (cliErr) {
           console.warn(

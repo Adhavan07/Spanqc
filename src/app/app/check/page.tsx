@@ -79,6 +79,8 @@ export default function CheckWorkflowPage() {
     sheetCount: number;
     sheetNames: string[];
     extractedLines: string[];
+    svgCount?: number;
+    jpgCount?: number;
   } | null>(null);
   const [isUnzipping, setIsUnzipping] = useState(false);
 
@@ -415,11 +417,16 @@ export default function CheckWorkflowPage() {
         collectedTextLines.add(file.name);
       }
 
+      const svgCount = detectedSheets.filter((n) => /\.svg$/i.test(n)).length;
+      const jpgCount = detectedSheets.filter((n) => /\.(jpe?g|png|webp)$/i.test(n)).length;
+
       const manifest = {
         outputFilename: file.name,
         sheetCount,
-        sheetNames: detectedSheets.slice(0, 100),
+        sheetNames: detectedSheets.slice(0, 200),
         extractedLines: Array.from(collectedTextLines).slice(0, 3000),
+        svgCount,
+        jpgCount,
       };
       setOutputManifest(manifest);
 
@@ -913,7 +920,9 @@ export default function CheckWorkflowPage() {
               {outputFileData ? (
                 <div className="pt-4 border-t border-purple-500/30 flex items-center justify-between z-20">
                   <span className="text-[11px] font-mono text-purple-300">
-                    Delivery Package Ready for Comparison
+                    {outputManifest?.svgCount || outputManifest?.jpgCount
+                      ? `${outputManifest.svgCount || 0} SVG Components + ${outputManifest.jpgCount || 0} JPG Outputs Ready`
+                      : "Delivery Package Ready for Comparison"}
                   </span>
                   <button
                     onClick={() => {

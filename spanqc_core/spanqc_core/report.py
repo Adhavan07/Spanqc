@@ -87,6 +87,7 @@ def build_report(
     project_name: str = "Hyundai VDH Heavy Equipment Series",
     applicable_standard: str = "ISO 6722 / SAE J1939 / Hyundai Tech Pub",
     discipline_name: str = "Heavy Vehicles & Automotive Electrical Systems",
+    detected_components: Sequence[dict] = (),
 ) -> Path:
     """Build a professional multi-tab engineering QC audit workbook."""
     scorecard: ComplianceScorecard = calculate_compliance_score(
@@ -144,21 +145,34 @@ def build_report(
         wr.cell(row=wr.max_row, column=7).fill = PatternFill("solid", fgColor=_FILL[cls])
     _autosize(wr)
 
-    # ── TAB 3: FINDINGS (Matches Screenshot 1 schema) ────────────────────────
+    # ── TAB 3: FINDINGS (Full Root-Cause + Node Reference + Viability Schema) ─
     wf = wb.create_sheet("Findings")
     _header(wf, [
         "Finding ID", "Rule Code", "Severity", "Title", "Description",
+        "Component / Symbol", "Input Node Ref (OEM)", "Output Node Ref (SVG/JPG)",
+        "Circuit Viability (Will It Work?)", "Circuit Consequence",
+        "Root Cause Origin", "Future Operational Problem", "How to Fix (Remediation)",
         "Standard Reference", "Observed Fact", "Standard Requirement",
         "Location", "Confidence", "Review Status", "Reviewer Sign-off", "Reviewer Comment"
     ])
     for f in findings:
         conf_pct = f"{int(round(f.get('confidence', 0.95) * 100))}%" if isinstance(f.get('confidence'), (int, float)) else "95%"
+        ci = f.get("circuit_impact") or {}
+        will_work_str = "YES - OPERATIVE" if ci.get("will_work", True) else "NO - WILL NOT WORK"
         wf.append([
             f.get("finding_id", "D-001"),
             f.get("rule_code", f.get("rule_id", "RULE-NET-001")),
             f.get("severity", "MAJOR"),
             f.get("title", ""),
             f.get("description", f.get("reason", "")),
+            f.get("component_symbol") or f.get("component_category") or "Wiring / Terminal",
+            f.get("node_reference_oem", f.get("expected_value", "")),
+            f.get("node_reference_redraw", f.get("detected_value", "")),
+            will_work_str,
+            ci.get("circuit_consequence", f.get("reason", "")),
+            f.get("root_cause", ""),
+            f.get("future_problem", ""),
+            f.get("remediation_required", ci.get("remediation_required", "")),
             f.get("standard_reference", "SPANQC Heavy Vehicle Standard"),
             f.get("observed_fact", f.get("detected_value", f.get("evidence_text", ""))),
             f.get("standard_requirement", f.get("expected_value", "")),
@@ -171,7 +185,8 @@ def build_report(
         cur_row = wf.max_row
         sev = f.get("severity", "MAJOR")
         wf.cell(row=cur_row, column=3).fill = PatternFill("solid", fgColor=_SEV_FILL.get(sev, "FFFFFF"))
-        for col_idx in range(1, 14):
+        wf.cell(row=cur_row, column=9).fill = PatternFill("solid", fgColor="C6EFCE" if ci.get("will_work", True) else "FFC7CE")
+        for col_idx in range(1, 22):
             c = wf.cell(row=cur_row, column=col_idx)
             c.font = Font(size=9, name="Arial")
             c.border = _BORDER_THIN
@@ -186,9 +201,22 @@ def build_report(
 
     # ── TAB 5: COMPONENTS ────────────────────────────────────────────────────
     wc = wb.create_sheet("Components")
-    _header(wc, ["Component", "Scope"])
-    for c in sorted(index.known):
-        wc.append([c, "in scope" if c in index.in_scope else "known (not re-verified)"])
+    if detected_components:
+        _header(wc, ["Designator", "Symbol Name", "Category", "Sheet", "Node Ref", "Source Type", "Evidence"])
+        for dc in detected_components:
+            wc.append([
+                dc.get("designator"),
+                dc.get("symbol_name"),
+                dc.get("category"),
+                dc.get("sheet"),
+                dc.get("node_ref"),
+                dc.get("source_type"),
+                dc.get("evidence"),
+            ])
+    else:
+        _header(wc, ["Component", "Scope"])
+        for c in sorted(index.known):
+            wc.append([c, "in scope" if c in index.in_scope else "known (not re-verified)"])
     _autosize(wc)
 
     out = Path(path)
@@ -204,7 +232,7 @@ def export_csv_report(
     quality_score: int = 78,
     overall_outcome: str = "FAIL"
 ) -> str:
-    """Generate exact CSV string matching Screenshot 1."""
+    """Generate exact CSV string matching Screenshot 1 + Root Cause & Node Reference columns."""
     output = io.StringIO()
     writer = csv.writer(output)
 
@@ -223,11 +251,16 @@ def export_csv_report(
         "Finding ID", "Rule Code", "Severity", "Title", "Description",
         "Standard Reference", "Observed Fact / Evidence", "Standard Requirement",
         "Location (Sheet/Zone)", "Confidence", "Review Status",
-        "Reviewer Sign-off", "Reviewer Comment"
+        "Reviewer Sign-off", "Reviewer Comment",
+        "Component / Symbol", "Input Node Ref (OEM)", "Output Node Ref (SVG/JPG)",
+        "Will Circuit Work?", "Circuit Consequence", "Root Cause Origin",
+        "Future Operational Problem", "How to Fix (Remediation)"
     ])
 
     for f in findings:
         conf_pct = f"{int(round(f.get('confidence', 0.95) * 100))}%" if isinstance(f.get('confidence'), (int, float)) else "95%"
+        ci = f.get("circuit_impact") or {}
+        will_work_str = "YES - OPERATIVE" if ci.get("will_work", True) else "NO - WILL NOT WORK"
         writer.writerow([
             f.get("finding_id", "D-001"),
             f.get("rule_code", f.get("rule_id", "RULE-NET-001")),
@@ -241,7 +274,15 @@ def export_csv_report(
             conf_pct,
             f.get("review_status", "OPEN"),
             f.get("reviewer_signoff", "Unassigned"),
-            f.get("reviewer_comment", "")
+            f.get("reviewer_comment", ""),
+            f.get("component_symbol") or f.get("component_category") or "Wiring / Terminal",
+            f.get("node_reference_oem", f.get("expected_value", "")),
+            f.get("node_reference_redraw", f.get("detected_value", "")),
+            will_work_str,
+            ci.get("circuit_consequence", f.get("reason", "")),
+            f.get("root_cause", ""),
+            f.get("future_problem", ""),
+            f.get("remediation_required", ci.get("remediation_required", ""))
         ])
 
     return output.getvalue()
