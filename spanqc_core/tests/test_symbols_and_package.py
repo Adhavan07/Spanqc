@@ -143,3 +143,73 @@ def test_api_accepts_dual_input_and_output_zip(png_bytes):
         assert f.get("node_reference_oem")
         assert f.get("node_reference_redraw")
         assert f.get("remediation_required")
+
+
+def test_hierarchical_segmentation_and_line_by_line_tracing():
+    from spanqc_core.segmenter import run_hierarchical_segmentation_and_tracing
+    from spanqc_core.wirecodes import WireLabel
+
+    compact = WireLabel.parse_oem_compact("1.0Gr")
+    assert compact is not None and compact.colour == "GY" and compact.size == "1"
+
+    input_pages = [
+        {
+            "page_number": 1,
+            "name": "Page 1",
+            "text_raw": "4-3\nGROUP 2 ELECTRICAL CIRCUIT\nCL-1\n122A WH 1.5\nCN-52\n",
+        },
+        {
+            "page_number": 2,
+            "name": "Page 2",
+            "text_raw": "4-4-1\nCL-1\n1.0Gr\nBEACON LAMP\nCS-1\nCN-52\n",
+        },
+        {
+            "page_number": 3,
+            "name": "Page 3",
+            "text_raw": "4-4-2\nCN-52\nN9375 GN 0.75\nCA30\n",
+        },
+    ]
+    output_wires = [
+        {"wire_no": "122A", "colour": "WH", "size_mm2": "1.5", "source": "4-3.svg"},
+    ]
+    findings = [
+        {
+            "finding_id": "F-1",
+            "rule_id": "LMS-03",
+            "severity": "CRITICAL",
+            "outcome": "FAIL",
+            "title": "Swapped pinout on CN-93(75)/(76) wire N9375",
+            "expected_value": "N9375 -> pin 75",
+            "detected_value": "N9375 -> pin 76",
+            "remediation_required": "Swap pins 75 and 76.",
+        }
+    ]
+
+    seg = run_hierarchical_segmentation_and_tracing(
+        input_pages=input_pages,
+        output_wires=output_wires,
+        output_sheet_names=["4-3.svg", "4-4-1.svg"],
+        findings=findings,
+        overall_score=84,
+    )
+
+    # 1. Module Segmentation
+    assert len(seg["module_segments"]) == 1
+    assert seg["module_segments"][0]["module_number"] == "4"
+    assert seg["module_segments"][0]["pages"] == [1, 2, 3]
+    assert seg["module_segments"][0]["sheet_codes"] == ["4-3", "4-4-1", "4-4-2"]
+
+    # 2. Page-Level Segmentation
+    assert len(seg["page_segments"]) == 3
+
+    # 3. Functional Segmentation & Cross-Sheet Continuity (CN-52 spans pages 1, 2, 3; CL-1 spans pages 1, 2)
+    assert seg["validation_summary"]["cross_sheet_paths_count"] >= 1
+    assert any(p["node"] in {"CN-52", "CL-1"} for p in seg["cross_sheet_paths"])
+
+    # 4. Line-by-Line Validation ("FINE" vs "WRONG") & Scoring
+    lines = seg["line_by_line_validation"]
+    assert any(l["wire_no"] == "122A" and l["validation_status"] == "CONFIRMED_FINE" for l in lines)
+    assert any(l["wire_no"] == "N9375" and l["validation_status"] == "WRONG_CRITICAL" for l in lines)
+    assert seg["validation_summary"]["confirmed_fine_count"] >= 1
+    assert seg["validation_summary"]["wrong_count"] >= 1
+

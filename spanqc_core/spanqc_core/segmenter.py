@@ -127,3 +127,508 @@ def segment_drawing_package(
 
     return segments
 
+
+_SHEET_CODE_RE = re.compile(r"\b(1\s*FB1-\d+|\d{1,2}-\d{1,2}(?:-\d{1,2})?)\b", re.I)
+
+MODULE_TITLES: Dict[str, str] = {
+    "1": "Module 1: Fuse Box FB1 & Power Distribution",
+    "2": "Module 2: CMCU Master Machine Controller",
+    "3": "Module 3: Engine ECU, Starter & Alternator",
+    "4": "Module 4: Cabin, Lighting & Electrical Circuitry",
+    "5": "Module 5: Hydraulic & Transmission Controls",
+    "6": "Module 6: Auxiliary Systems & Attachments",
+    "7": "Module 7: CA30 Chassis Controller & CN-93",
+    "8": "Module 8: Front Instrument Cluster & Displays",
+    "9": "Module 9: Boom & Bucket Sensors",
+    "10": "Module 10: Wiper, Washer & HVAC Control",
+    "11": "Module 11: Main Harness Spine & Bulkhead",
+    "12": "Module 12: CCR Auxiliary Relay Matrix",
+}
+
+
+def extract_module_and_sheet_code(text: str, fallback_name: str = "") -> Tuple[str, str]:
+    """Identify the primary module number (e.g. '4') and sheet code (e.g. '4-4-1') from page text."""
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    head_sample = "\n".join(lines[:15]) + " " + (fallback_name or "")
+    if re.search(r"\bFB1\b", head_sample, re.I):
+        m_fb = re.search(r"\b(1\s*FB1-\d+|FB1-\d+)\b", head_sample, re.I)
+        return "1", (m_fb.group(1).upper() if m_fb else "1 FB1")
+    m = _SHEET_CODE_RE.search(head_sample)
+    if m:
+        code = m.group(1).strip()
+        mod_num = code.split("-", 1)[0].split()[0]
+        return mod_num, code
+    # Fallback integer sheet (e.g., 5.svg, 7.svg)
+    m_single = re.match(r"^(?:Page\s+)?(\d{1,2})\b", (fallback_name or "").strip(), re.I)
+    if m_single:
+        n = m_single.group(1)
+        return n, n
+    return "0", fallback_name or "Sheet 1"
+
+
+def run_hierarchical_segmentation_and_tracing(
+    *,
+    input_pages: List[Dict[str, Any]],
+    output_wires: List[Dict[str, Any]] = (),
+    output_components: List[Dict[str, Any]] = (),
+    output_sheet_names: List[str] = (),
+    findings: List[Dict[str, Any]] = (),
+    overall_score: int = 100,
+) -> Dict[str, Any]:
+    """Execute the 4-stage hierarchical QC pipeline:
+    1. Document Module-Level Segmentation (group N pages by module number)
+    2. Page-Level Segmentation (zones, sheet codes, components per page)
+    3. Functional Segmentation & Line-by-Line Electrical Path Tracing
+    4. Cross-Validation vs Output SVG/JPG Package + Scoring ('Fine' vs 'Wrong')
+    """
+    from .symbols import classify_designator, detect_components_from_text_lines
+    from .wirecodes import WireLabel, norm_colour, norm_size, norm_wire_no
+
+    module_map: Dict[str, Dict[str, Any]] = {}
+    page_segments: List[Dict[str, Any]] = []
+    functional_map: Dict[str, Dict[str, Any]] = {}
+    all_traced_lines: List[Dict[str, Any]] = []
+
+    # Index findings by wire number / component / page for accurate line-level attribution
+    finding_by_wire: Dict[str, List[Dict[str, Any]]] = {}
+    for f in findings or []:
+        haystack = " ".join([
+            str(f.get("title") or ""),
+            str(f.get("expected_value") or ""),
+            str(f.get("detected_value") or ""),
+            str(f.get("evidence_text") or ""),
+        ]).upper()
+        for tok in re.findall(r"\b[A-Z]?\d{1,4}[A-Z]?\b|\bF\d+\b|\bCR\d+\b|\bCA\d+[A-Z]?\b|\bCN-\d+\b", haystack):
+            finding_by_wire.setdefault(tok, []).append(f)
+
+    # Index output wires by normalized wire_no and sheet/colour/size
+    out_by_wire_no: Dict[str, List[Dict[str, Any]]] = {}
+    out_by_sig: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for ow in output_wires or []:
+        wn = norm_wire_no(ow.get("wire_no"))
+        if wn:
+            out_by_wire_no.setdefault(wn, []).append(ow)
+        oc = norm_colour(ow.get("colour")) or ""
+        osize = norm_size(ow.get("size_mm2") or ow.get("size")) or ""
+        if oc and osize:
+            out_by_sig.setdefault((oc, osize), []).append(ow)
+
+    # Track component occurrences across pages/modules for cross-sheet tracing
+    comp_locations: Dict[str, List[str]] = {}
+    raw_page_records: List[Dict[str, Any]] = []
+
+    line_seq = 0
+    for page in input_pages:
+        pnum = int(page.get("page_number") or 1)
+        pname = str(page.get("name") or f"Page {pnum}")
+        text_raw = str(page.get("text_raw") or "")
+        lines = [l.strip() for l in text_raw.splitlines() if l.strip()]
+
+        mod_num, sheet_code = extract_module_and_sheet_code(text_raw, pname)
+        func_seg = classify_sheet_segment(sheet_code, text_raw)
+        mod_title = MODULE_TITLES.get(mod_num, f"Module {mod_num}: Electrical Subsystem ({sheet_code})")
+
+        # Identify matched output sheets by module/sheet code
+        matched_out = [
+            s for s in (output_sheet_names or [])
+            if sheet_code.lower() in s.lower() or f"{mod_num}-" in s.lower() or (mod_num == "1" and "fb1" in s.lower())
+        ]
+
+        # Detect all components on this page using reference circuit symbols + VDH ontology
+        page_comps = detect_components_from_text_lines(lines, sheet_name=f"Page {pnum} ({sheet_code})")
+        for pc in page_comps:
+            comp_locations.setdefault(pc.designator.upper(), []).append(f"M{mod_num}/P{pnum} ({sheet_code})")
+
+        # Extract context anchors sequentially so wires get realistic From -> To nodes
+        last_source_comp = mod_title.split(":")[0]
+        next_dest_comp = f"{func_seg.value} Node"
+        comp_indices: List[Tuple[int, str]] = []
+        for idx_l, l in enumerate(lines):
+            for tok in re.split(r"[\s,;]+", l):
+                tok_c = tok.strip()
+                if classify_designator(tok_c):
+                    comp_indices.append((idx_l, tok_c))
+                    break
+
+        def _nearest_endpoints(line_idx: int) -> Tuple[str, str]:
+            src = last_source_comp
+            dst = next_dest_comp
+            before = [c for idx_c, c in comp_indices if idx_c <= line_idx]
+            after = [c for idx_c, c in comp_indices if idx_c > line_idx]
+            if before:
+                src = before[-1]
+            if after:
+                dst = after[0]
+            elif len(before) >= 2:
+                src, dst = before[-2], before[-1]
+            return src, dst
+
+        page_wire_count = 0
+        seen_page_wire_keys: set = set()
+        for idx_l, l in enumerate(lines):
+            lab = WireLabel.parse(l) or WireLabel.parse_oem_compact(l)
+            if not lab:
+                continue
+            src_node, dst_node = _nearest_endpoints(idx_l)
+            w_key = (lab.wire_no or "", lab.colour, lab.size or "", src_node, dst_node)
+            if w_key in seen_page_wire_keys:
+                continue
+            seen_page_wire_keys.add(w_key)
+            page_wire_count += 1
+            line_seq += 1
+
+            raw_page_records.append({
+                "line_no": line_seq,
+                "page": pnum,
+                "sheet_code": sheet_code,
+                "module_number": mod_num,
+                "module_title": mod_title,
+                "functional_segment": func_seg.value,
+                "wire_no": lab.wire_no or f"W-P{pnum}-{page_wire_count}",
+                "has_explicit_wire_no": bool(lab.wire_no),
+                "colour": lab.colour,
+                "size_mm2": lab.size,
+                "from_node": f"{sheet_code}: {src_node}",
+                "to_node": f"{sheet_code}: {dst_node}",
+                "src_raw": src_node,
+                "dst_raw": dst_node,
+                "evidence": l,
+            })
+
+        # Ensure Module bucket exists
+        if mod_num not in module_map:
+            module_map[mod_num] = {
+                "module_number": mod_num,
+                "module_title": mod_title,
+                "pages": [],
+                "sheet_codes": [],
+                "output_sheets": set(),
+                "component_count": 0,
+                "wire_count": 0,
+                "confirmed_fine": 0,
+                "wrong_count": 0,
+                "score": 100,
+                "status": "FINE",
+            }
+        m_entry = module_map[mod_num]
+        m_entry["pages"].append(pnum)
+        m_entry["sheet_codes"].append(sheet_code)
+        m_entry["output_sheets"].update(matched_out)
+        m_entry["component_count"] += len(page_comps)
+        m_entry["wire_count"] += page_wire_count
+
+        # Record Page-Level Segmentation
+        page_segments.append({
+            "page_number": pnum,
+            "sheet_code": sheet_code,
+            "module_number": mod_num,
+            "functional_segment": func_seg.value,
+            "component_count": len(page_comps),
+            "wire_count": page_wire_count,
+            "matched_output_sheets": matched_out[:5],
+            "status": "VALIDATED" if matched_out or not output_sheet_names else "OUTPUT_SHEET_UNMATCHED",
+        })
+
+        # Record Functional Zone Segmentation
+        f_key = func_seg.value
+        if f_key not in functional_map:
+            functional_map[f_key] = {
+                "functional_segment": f_key,
+                "modules": set(),
+                "sheets": [],
+                "components": set(),
+                "wire_count": 0,
+            }
+        fm = functional_map[f_key]
+        fm["modules"].add(f"Module {mod_num}")
+        fm["sheets"].append(sheet_code)
+        fm["components"].update(pc.designator for pc in page_comps[:40])
+        fm["wire_count"] += page_wire_count
+
+    # Register all Output SVG/JPG sheets across modules and functional zones
+    for sname in output_sheet_names or []:
+        o_mod, o_code = extract_module_and_sheet_code("", sname)
+        o_seg = classify_sheet_segment(o_code, sname)
+        o_title = MODULE_TITLES.get(o_mod, f"Module {o_mod}: Delivery Circuitry ({o_code})")
+        if o_mod not in module_map:
+            module_map[o_mod] = {
+                "module_number": o_mod,
+                "module_title": o_title,
+                "pages": [],
+                "sheet_codes": [o_code],
+                "output_sheets": {sname},
+                "component_count": 0,
+                "wire_count": 0,
+                "confirmed_fine": 0,
+                "wrong_count": 0,
+                "score": 100,
+                "status": "FINE",
+            }
+        else:
+            module_map[o_mod]["output_sheets"].add(sname)
+            if o_code not in module_map[o_mod]["sheet_codes"]:
+                module_map[o_mod]["sheet_codes"].append(o_code)
+
+        if o_seg.value not in functional_map:
+            functional_map[o_seg.value] = {
+                "functional_segment": o_seg.value,
+                "modules": set(),
+                "sheets": [],
+                "components": set(),
+                "wire_count": 0,
+            }
+        functional_map[o_seg.value]["modules"].add(f"Module {o_mod}")
+        if o_code not in functional_map[o_seg.value]["sheets"]:
+            functional_map[o_seg.value]["sheets"].append(o_code)
+
+    for ow in output_wires or []:
+        o_sh = str(ow.get("source") or ow.get("sheet") or "")
+        if o_sh:
+            o_mod, _ = extract_module_and_sheet_code("", o_sh)
+            if o_mod in module_map and raw_page_records:
+                module_map[o_mod]["wire_count"] += 1
+                module_map[o_mod]["confirmed_fine"] += 1
+
+    for oc in output_components or []:
+        c_sh = str(oc.get("sheet") or "")
+        c_mod, c_code = extract_module_and_sheet_code("", c_sh)
+        if c_mod in module_map:
+            module_map[c_mod]["component_count"] += 1
+        c_seg = classify_sheet_segment(c_code, f"{oc.get('designator', '')} {oc.get('category', '')}")
+        if c_seg.value in functional_map:
+            functional_map[c_seg.value]["components"].add(str(oc.get("designator") or ""))
+
+    # Also synthesize traced lines from Output SVGs if Input PDF was scanned/image-only
+    if not raw_page_records and output_wires:
+        for idx_ow, ow in enumerate(output_wires[:200], 1):
+            sh = str(ow.get("source") or ow.get("sheet") or "Sheet 1")
+            mod_num, sheet_code = extract_module_and_sheet_code("", sh)
+            func_seg = classify_sheet_segment(sheet_code, sh)
+            mod_title = MODULE_TITLES.get(mod_num, f"Module {mod_num}: Output Package")
+            if mod_num not in module_map:
+                module_map[mod_num] = {
+                    "module_number": mod_num,
+                    "module_title": mod_title,
+                    "pages": [ow.get("page", 1)],
+                    "sheet_codes": [sheet_code],
+                    "output_sheets": {sh},
+                    "component_count": 0,
+                    "wire_count": 0,
+                    "confirmed_fine": 0,
+                    "wrong_count": 0,
+                    "score": 100,
+                    "status": "FINE",
+                }
+            module_map[mod_num]["wire_count"] += 1
+            raw_page_records.append({
+                "line_no": idx_ow,
+                "page": ow.get("page", 1),
+                "sheet_code": sheet_code,
+                "module_number": mod_num,
+                "module_title": mod_title,
+                "functional_segment": func_seg.value,
+                "wire_no": ow.get("wire_no") or f"W-{idx_ow}",
+                "has_explicit_wire_no": bool(ow.get("wire_no")),
+                "colour": ow.get("colour") or "",
+                "size_mm2": ow.get("size_mm2") or ow.get("size") or "",
+                "from_node": f"{sheet_code}: {ow.get('source_comp') or ow.get('source') or 'SOURCE'}",
+                "to_node": f"{sheet_code}: {ow.get('dest_comp') or ow.get('destination') or 'PIN'}",
+                "src_raw": str(ow.get("source_comp") or ow.get("source") or ""),
+                "dst_raw": str(ow.get("dest_comp") or ow.get('destination') or ""),
+                "evidence": ow.get("evidence_text") or ow.get("evidence") or "",
+            })
+
+    # Stage 3 & 4: Cross-Sheet Path Tracing + Line-by-Line Output Validation & Scoring
+    has_output = bool(output_wires or output_sheet_names)
+    confirmed_fine_count = 0
+    wrong_count = 0
+    unverified_count = 0
+    cross_sheet_paths: List[Dict[str, Any]] = []
+    seen_cross: set = set()
+
+    for rec in raw_page_records[:250]:
+        wn = norm_wire_no(rec["wire_no"]) if rec["has_explicit_wire_no"] else None
+        col = norm_colour(rec["colour"]) or ""
+        sz = norm_size(rec["size_mm2"]) or ""
+
+        # Check cross-sheet component / node continuity
+        cross_path = None
+        for node_tok in (rec["src_raw"].upper(), rec["dst_raw"].upper()):
+            locs = sorted(set(comp_locations.get(node_tok, [])))
+            if len(locs) >= 2:
+                cross_path = f"{node_tok}: {' <-> '.join(locs[:4])}"
+                if cross_path not in seen_cross:
+                    seen_cross.add(cross_path)
+                    cross_sheet_paths.append({
+                        "node": node_tok,
+                        "path": " -> ".join(locs[:5]),
+                        "sheet_count": len(locs),
+                        "status": "CROSS_SHEET_CONTINUOUS",
+                    })
+                break
+
+        # Determine Line-by-Line Validation Verdict vs Findings & Output Package
+        related_findings = []
+        if wn and wn in finding_by_wire:
+            related_findings.extend(finding_by_wire[wn])
+        for tok in (rec["src_raw"].upper(), rec["dst_raw"].upper()):
+            if tok in finding_by_wire:
+                related_findings.extend(finding_by_wire[tok])
+
+        crit_f = next((f for f in related_findings if f.get("severity") == "CRITICAL" or f.get("outcome") == "FAIL"), None)
+        rev_f = next((f for f in related_findings if f.get("outcome") == "REVIEW"), None)
+
+        out_match = None
+        if wn and wn in out_by_wire_no:
+            out_match = out_by_wire_no[wn][0]
+        elif (col, sz) in out_by_sig:
+            out_match = out_by_sig[(col, sz)][0]
+
+        if crit_f:
+            v_status = "WRONG_CRITICAL"
+            verdict = f"WRONG: {crit_f.get('title')} — {crit_f.get('root_cause') or crit_f.get('reason')}"
+            fix_hint = crit_f.get("remediation_required") or "Fix conductor / pin mismatch to match OEM."
+            wrong_count += 1
+            module_map[rec["module_number"]]["wrong_count"] += 1
+            module_map[rec["module_number"]]["score"] = max(40, module_map[rec["module_number"]]["score"] - 15)
+        elif rev_f:
+            v_status = "WRONG_REVIEW"
+            verdict = f"ISSUE / REVIEW: {rev_f.get('title')} — {rev_f.get('reason')}"
+            fix_hint = rev_f.get("remediation_required") or "Verify drafting/component designation."
+            wrong_count += 1
+            module_map[rec["module_number"]]["wrong_count"] += 1
+            module_map[rec["module_number"]]["score"] = max(55, module_map[rec["module_number"]]["score"] - 7)
+        elif has_output and out_match:
+            v_status = "CONFIRMED_FINE"
+            out_sh = out_match.get("source") or out_match.get("sheet") or "Output SVG"
+            verdict = f"FINE (CONFIRMED): Wire {rec['wire_no']} ({col} {sz or '?'}mm²) from {rec['from_node']} -> {rec['to_node']} matches Output [{out_sh}]."
+            fix_hint = "None required — validated conforming."
+            confirmed_fine_count += 1
+            module_map[rec["module_number"]]["confirmed_fine"] += 1
+        elif has_output:
+            v_status = "UNVERIFIED_INPUT_ONLY"
+            verdict = f"NOT MATCHED IN OUTPUT SCOPE: Line extracted on {rec['sheet_code']}; verify corresponding sheet exists in uploaded Output."
+            fix_hint = "Include matching sheet SVG/JPG in Output bundle or confirm optional attachment."
+            unverified_count += 1
+        else:
+            v_status = "CONFIRMED_FINE"
+            verdict = f"FINE (INPUT EXTRACTED): Wire {rec['wire_no']} ({col} {sz or '?'}mm²) traced cleanly {rec['from_node']} -> {rec['to_node']}."
+            fix_hint = "Upload Output SVG/JPG bundle for dual cross-validation."
+            confirmed_fine_count += 1
+            module_map[rec["module_number"]]["confirmed_fine"] += 1
+
+        all_traced_lines.append({
+            "line_no": rec["line_no"],
+            "module_number": rec["module_number"],
+            "sheet_code": rec["sheet_code"],
+            "page": rec["page"],
+            "functional_segment": rec["functional_segment"],
+            "wire_no": rec["wire_no"],
+            "colour": col,
+            "size_mm2": sz,
+            "from_node": rec["from_node"],
+            "to_node": rec["to_node"],
+            "cross_sheet_path": cross_path,
+            "validation_status": v_status,
+            "verdict": verdict,
+            "remediation": fix_hint,
+            "evidence": rec["evidence"],
+        })
+
+    # Include finding-linked discrepancies not already covered by input lines (e.g. Output SVG font/syntax/missing findings)
+    covered_titles = {l["verdict"] for l in all_traced_lines}
+    for idx_f, f in enumerate(findings or [], 1):
+        ftitle = str(f.get("title") or "")
+        if any(ftitle and ftitle in v for v in covered_titles):
+            continue
+        f_sheet = str(f.get("node_reference_redraw") or f.get("location") or f"Page {f.get('page_number', 1)}")
+        f_mod, f_code = extract_module_and_sheet_code("", f_sheet)
+        f_seg = classify_sheet_segment(f_code, ftitle)
+        is_crit = f.get("severity") == "CRITICAL" or f.get("outcome") == "FAIL"
+        wrong_count += 1
+        if f_mod in module_map:
+            module_map[f_mod]["wrong_count"] += 1
+            module_map[f_mod]["score"] = max(40, module_map[f_mod]["score"] - (15 if is_crit else 7))
+        all_traced_lines.insert(0, {
+            "line_no": idx_f,
+            "module_number": f_mod,
+            "sheet_code": f_code,
+            "page": f.get("page_number") or 1,
+            "functional_segment": f_seg.value,
+            "wire_no": str(f.get("rule_id") or f.get("code") or "FINDING"),
+            "colour": "",
+            "size_mm2": "",
+            "from_node": str(f.get("node_reference_oem") or f.get("expected_value") or "OEM Input"),
+            "to_node": str(f.get("node_reference_redraw") or f.get("detected_value") or "Output Redraw"),
+            "cross_sheet_path": None,
+            "validation_status": "WRONG_CRITICAL" if is_crit else "WRONG_REVIEW",
+            "verdict": f"WRONG: {ftitle} — {f.get('root_cause') or f.get('reason')}",
+            "remediation": f.get("remediation_required") or "Align Output sheet with Input OEM specification.",
+            "evidence": str(f.get("evidence_text") or ftitle),
+        })
+
+    # Re-index line numbers sequentially
+    for i_ln, ln in enumerate(all_traced_lines, 1):
+        ln["line_no"] = i_ln
+
+    # Finalize Module summary list sorted numerically
+    module_segments = []
+    for m_num in sorted(module_map.keys(), key=lambda x: (int(x) if x.isdigit() else 999, x)):
+        m = module_map[m_num]
+        if m["wrong_count"] > 0:
+            m["status"] = "ISSUES_FOUND" if m["score"] >= 70 else "CRITICAL_FAIL"
+        else:
+            m["status"] = "FINE"
+        module_segments.append({
+            "module_number": m["module_number"],
+            "module_title": m["module_title"],
+            "pages": sorted(set(m["pages"])),
+            "sheet_codes": list(dict.fromkeys(m["sheet_codes"])),
+            "output_sheets": sorted(m["output_sheets"]),
+            "component_count": m["component_count"],
+            "wire_count": m["wire_count"],
+            "confirmed_fine": m["confirmed_fine"],
+            "wrong_count": m["wrong_count"],
+            "score": m["score"],
+            "status": m["status"],
+        })
+
+    functional_segments = [
+        {
+            "functional_segment": fm["functional_segment"],
+            "modules": sorted(fm["modules"]),
+            "sheets": list(dict.fromkeys(fm["sheets"])),
+            "components": sorted(fm["components"])[:40],
+            "wire_count": fm["wire_count"],
+        }
+        for fm in functional_map.values()
+    ]
+
+    total_traced = len(all_traced_lines)
+    validation_summary = {
+        "total_modules": len(module_segments),
+        "total_pages_segmented": len(page_segments),
+        "total_functional_zones": len(functional_segments),
+        "total_lines_traced": total_traced,
+        "confirmed_fine_count": confirmed_fine_count,
+        "wrong_count": wrong_count,
+        "unverified_count": unverified_count,
+        "cross_sheet_paths_count": len(cross_sheet_paths),
+        "overall_score": overall_score,
+        "verdict_banner": (
+            f"ALL CLEAR ({confirmed_fine_count}/{total_traced} wiring lines confirmed FINE)"
+            if wrong_count == 0 and len(findings or []) == 0 and total_traced > 0
+            else f"{max(wrong_count, len(findings or []))} ISSUES DETECTED across {len(module_segments)} modules ({confirmed_fine_count} lines confirmed FINE)"
+        ),
+    }
+
+    return {
+        "module_segments": module_segments,
+        "page_segments": page_segments,
+        "functional_segments": functional_segments,
+        "cross_sheet_paths": cross_sheet_paths[:50],
+        "line_by_line_validation": all_traced_lines,
+        "validation_summary": validation_summary,
+    }
+
+

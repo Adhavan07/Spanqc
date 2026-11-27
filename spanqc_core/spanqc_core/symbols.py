@@ -489,3 +489,4 @@ def enrich_finding_diagnostics(finding: Dict[str, Any], sheet_name: str = "Sheet
         finding["component_symbol"] = spec.name
 
     return finding
+

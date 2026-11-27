@@ -463,6 +463,7 @@ def analyze_output_package(
         "human_wires": human_wires,
         "components_detected": components_detected,
         "findings": combined_findings,
+        "sheet_names": sorted([v[0] for v in svg_entries.values()] + [v[0] for v in jpg_entries.values()]),
         "will_work_count": diff_result.will_work_count,
         "will_not_work_count": diff_result.will_not_work_count,
         "documentation_error_count": diff_result.documentation_error_count,

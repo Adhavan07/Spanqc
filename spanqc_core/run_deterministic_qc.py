@@ -37,6 +37,7 @@ from spanqc_core.score import calculate_compliance_score
 from spanqc_core.fontcheck import check_fonts
 from spanqc_core.visual_segmenter import extract_visual_segments_and_defects
 from spanqc_core.comparator import analyze_output_package
+from spanqc_core.segmenter import run_hierarchical_segmentation_and_tracing
 from spanqc_core.symbols import detect_components_from_text_lines, detect_components_from_svg, enrich_finding_diagnostics
 
 
@@ -96,6 +97,7 @@ def main():
     failed_pages: list[int] = []
     components_detected: list[dict] = []
     seen_comp_keys: set[tuple[str, str]] = set()
+    input_page_dicts: list[dict] = []
 
     # 3. Process each page deterministically
     for page_idx in range(total_pages):
@@ -112,6 +114,7 @@ def main():
 
         # Extract text vectors
         text = page.get_text()
+        input_page_dicts.append({"page_number": page_num, "name": f"Page {page_num}", "text_raw": text})
         page_lines = [l.strip() for l in text.splitlines() if l.strip()]
 
         # Identify electrical/electronic components from input sheet
@@ -132,7 +135,7 @@ def main():
 
         page_obs_count = 0
         for l in page_lines:
-            lab = WireLabel.parse(l)
+            lab = WireLabel.parse(l) or WireLabel.parse_oem_compact(l)
             if lab:
                 observations.append(Observation(
                     wire_no=lab.wire_no,
@@ -270,6 +273,19 @@ def main():
         overall_outcome=overall,
     )
 
+    # 4C. Execute 4-stage hierarchical segmentation & multi-sheet circuit tracing
+    out_sheet_list = list(pkg_result.get("sheet_names", []) if pkg_result else [])
+    if not out_sheet_list and output_manifest and isinstance(output_manifest.get("sheetNames"), list):
+        out_sheet_list = output_manifest.get("sheetNames") or []
+    segmentation_pipeline = run_hierarchical_segmentation_and_tracing(
+        input_pages=input_page_dicts,
+        output_wires=pkg_result.get("human_wires", []) if pkg_result else [],
+        output_components=components_detected,
+        output_sheet_names=out_sheet_list,
+        findings=unique_findings,
+        overall_score=scorecard.quality_score,
+    )
+
     report_id = f"RPT-{uuid.uuid4().hex[:10].upper()}"
 
     output = {
@@ -317,6 +333,7 @@ def main():
         "will_work_count": pkg_result["will_work_count"] if pkg_result else None,
         "will_not_work_count": pkg_result["will_not_work_count"] if pkg_result else None,
         "documentation_error_count": pkg_result["documentation_error_count"] if pkg_result else None,
+        "segmentation_pipeline": segmentation_pipeline,
         "pages_rendered": pages_rendered,
         "total_page_count": total_pages,
         "processed_page_count": processed_pages,

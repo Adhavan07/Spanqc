@@ -68,7 +68,8 @@ export default function QCReportDetailPage({
     unpaired_svgs: string[];
     unpaired_jpgs: string[];
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<"FINDINGS" | "NETLIST" | "COMPONENTS" | "GAPS">("FINDINGS");
+  const [segmentationPipeline, setSegmentationPipeline] = useState<any | null>(null);
+  const [activeTab, setActiveTab] = useState<"FINDINGS" | "NETLIST" | "COMPONENTS" | "SEGMENTATION" | "GAPS">("FINDINGS");
 
   // Human Review State
   const [reviewerComment, setReviewerComment] = useState("");
@@ -122,6 +123,9 @@ export default function QCReportDetailPage({
             }
             if (r.svg_jpg_pairing && typeof r.svg_jpg_pairing === "object") {
               setSvgJpgPairing(r.svg_jpg_pairing);
+            }
+            if (r.segmentation_pipeline && typeof r.segmentation_pipeline === "object") {
+              setSegmentationPipeline(r.segmentation_pipeline);
             }
 
             const wCount =
@@ -1011,6 +1015,20 @@ export default function QCReportDetailPage({
           </button>
 
           <button
+            onClick={() => setActiveTab("SEGMENTATION")}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === "SEGMENTATION"
+                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900 border border-transparent"
+            }`}
+          >
+            <span>Module Segmentation & Line-by-Line Trace</span>
+            <Badge size="xs" variant="neutral">
+              {segmentationPipeline?.validation_summary?.total_lines_traced ?? 0}
+            </Badge>
+          </button>
+
+          <button
             onClick={() => setActiveTab("GAPS")}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === "GAPS"
@@ -1331,6 +1349,214 @@ export default function QCReportDetailPage({
             </div>
           )}
         </div>
+      </div>
+    )}
+
+    {activeTab === "SEGMENTATION" && (
+      <div className="space-y-6">
+        {segmentationPipeline ? (
+          <>
+            {/* Summary Verdict & Scoring Header */}
+            <div className="p-5 rounded-2xl bg-[#0c1424] border border-cyan-500/30 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                    4-STAGE HIERARCHICAL PIPELINE
+                  </span>
+                  <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                    (segmentationPipeline.validation_summary?.wrong_count || 0) === 0
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                  }`}>
+                    {segmentationPipeline.validation_summary?.verdict_banner}
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-white">
+                  Module Segmentation, Circuit Path Tracing & Line-by-Line Output Verification
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Modules grouped by module number, pages segmented by zone, functional components traced line-by-line, and validated against Output.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
+                <div className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-center">
+                  <span className="text-[10px] text-slate-400 block">SCORE</span>
+                  <span className="text-base font-bold text-white">{segmentationPipeline.validation_summary?.overall_score ?? qcRun.quality_score}/100</span>
+                </div>
+                <div className="px-3 py-2 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-center">
+                  <span className="text-[10px] text-emerald-300 block">FINE / VALID</span>
+                  <span className="text-base font-bold text-emerald-300">{segmentationPipeline.validation_summary?.confirmed_fine_count ?? 0}</span>
+                </div>
+                <div className="px-3 py-2 rounded-xl bg-rose-950/60 border border-rose-500/40 text-center">
+                  <span className="text-[10px] text-rose-300 block">WRONG / ISSUE</span>
+                  <span className="text-base font-bold text-rose-300">{segmentationPipeline.validation_summary?.wrong_count ?? 0}</span>
+                </div>
+                <div className="px-3 py-2 rounded-xl bg-amber-950/60 border border-amber-500/40 text-center">
+                  <span className="text-[10px] text-amber-300 block">CROSS-SHEET</span>
+                  <span className="text-base font-bold text-amber-300">{segmentationPipeline.validation_summary?.cross_sheet_paths_count ?? 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Stage 1: Module Segmentation Cards */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono mb-3">
+                Stage 1 — Document Module Segmentation ({segmentationPipeline.module_segments?.length || 0} Modules)
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {(segmentationPipeline.module_segments || []).map((mod: any) => (
+                  <div key={`mod-${mod.module_number}`} className="p-4 rounded-xl bg-[#0f172a] border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-cyan-300 font-mono">Module {mod.module_number}</span>
+                      <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                        mod.status === "FINE"
+                          ? "bg-emerald-950 text-emerald-300 border border-emerald-500/40"
+                          : "bg-rose-950 text-rose-300 border border-rose-500/40"
+                      }`}>
+                        {mod.status} • Score {mod.score}/100
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-white">{mod.module_title}</p>
+                    <div className="text-[11px] text-slate-400 font-mono space-y-1">
+                      <div>Input Pages: {(mod.pages || []).join(", ")} ({(mod.sheet_codes || []).slice(0, 4).join(", ")})</div>
+                      <div>Components: {mod.component_count} • Wires: {mod.wire_count} ({mod.confirmed_fine} fine, {mod.wrong_count} wrong)</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Stage 2 & 3: Page Segmentation + Functional Zones & Cross-Sheet Tracing */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-slate-800 bg-[#0f172a] p-4 space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                  Stage 2 — Page-Level Segmentation ({segmentationPipeline.page_segments?.length || 0} Pages)
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-[11px] font-mono">
+                    <thead className="text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th className="py-2 pr-2">Page</th>
+                        <th className="py-2 pr-2">Sheet Code</th>
+                        <th className="py-2 pr-2">Functional Zone</th>
+                        <th className="py-2 pr-2">Comps / Wires</th>
+                        <th className="py-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {(segmentationPipeline.page_segments || []).map((ps: any) => (
+                        <tr key={`pg-${ps.page_number}`}>
+                          <td className="py-2 pr-2 text-cyan-300">P{ps.page_number}</td>
+                          <td className="py-2 pr-2 text-white">{ps.sheet_code}</td>
+                          <td className="py-2 pr-2 text-slate-300">{ps.functional_segment}</td>
+                          <td className="py-2 pr-2 text-slate-400">{ps.component_count}c / {ps.wire_count}w</td>
+                          <td className="py-2 text-emerald-300">{ps.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-[#0f172a] p-4 space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                  Stage 3 — Functional Zones & Cross-Sheet Continuity ({segmentationPipeline.cross_sheet_paths?.length || 0} Paths)
+                </h4>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {(segmentationPipeline.functional_segments || []).map((fz: any) => (
+                    <div key={`fz-${fz.functional_segment}`} className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-[11px]">
+                      <div className="flex items-center justify-between font-mono">
+                        <span className="font-bold text-cyan-300">{fz.functional_segment}</span>
+                        <span className="text-slate-400">{fz.wire_count} wires • {(fz.components || []).length} comps</span>
+                      </div>
+                      <div className="text-slate-400 mt-1 truncate">
+                        Components: {(fz.components || []).slice(0, 10).join(", ") || "—"}
+                      </div>
+                    </div>
+                  ))}
+                  {(segmentationPipeline.cross_sheet_paths || []).slice(0, 8).map((cp: any, idx: number) => (
+                    <div key={`cp-${idx}`} className="p-2 rounded bg-amber-950/30 border border-amber-500/30 text-[11px] font-mono text-amber-200">
+                      <span className="font-bold">{cp.node}:</span> {cp.path}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Stage 4: Line-by-Line Wiring Verification */}
+            <div className="rounded-xl border border-slate-800 bg-[#0f172a] overflow-hidden">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-white font-mono">
+                  Stage 4 — Line-by-Line Wiring Connection & Output Validation ({segmentationPipeline.line_by_line_validation?.length || 0} Lines)
+                </h4>
+              </div>
+              <div className="overflow-x-auto max-h-[480px]">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-900 text-slate-400 text-[10px] uppercase border-b border-slate-800 sticky top-0">
+                    <tr>
+                      <th className="p-3">#</th>
+                      <th className="p-3">Module / Sheet</th>
+                      <th className="p-3">Wire / Spec</th>
+                      <th className="p-3">Traced Path (From → To)</th>
+                      <th className="p-3">Validation</th>
+                      <th className="p-3">Diagnosis / Explanation</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {(segmentationPipeline.line_by_line_validation || []).map((ln: any) => (
+                      <tr key={`ln-${ln.line_no}`} className="hover:bg-slate-900/50">
+                        <td className="p-3 text-slate-500">{ln.line_no}</td>
+                        <td className="p-3 text-slate-300">
+                          <div>M{ln.module_number} ({ln.sheet_code})</div>
+                          <div className="text-[10px] text-slate-500">{ln.functional_segment}</div>
+                        </td>
+                        <td className="p-3">
+                          <span className="font-bold text-cyan-400">{ln.wire_no}</span>
+                          <div className="text-[10px] text-slate-400">{ln.colour} {ln.size_mm2 ? `${ln.size_mm2}mm²` : ""}</div>
+                        </td>
+                        <td className="p-3 text-slate-200">
+                          <div>{ln.from_node} → {ln.to_node}</div>
+                          {ln.cross_sheet_path && (
+                            <div className="text-[10px] text-amber-300">Cross-Sheet: {ln.cross_sheet_path}</div>
+                          )}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          {ln.validation_status === "CONFIRMED_FINE" ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/40">
+                              FINE (CONFIRMED)
+                            </span>
+                          ) : ln.validation_status === "WRONG_CRITICAL" ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-500/40">
+                              WRONG (CRITICAL)
+                            </span>
+                          ) : ln.validation_status === "WRONG_REVIEW" ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-500/40">
+                              WRONG / REVIEW
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-600">
+                              INPUT ONLY
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-[11px]">
+                          <div className="text-slate-200 font-sans">{ln.verdict}</div>
+                          {ln.validation_status !== "CONFIRMED_FINE" && (
+                            <div className="text-cyan-300 mt-0.5 font-sans">Fix: {ln.remediation}</div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="p-8 text-center text-slate-400 font-mono text-xs rounded-xl border border-slate-800 bg-[#0f172a]">
+            Run a new inspection in Unbox™ & QC to generate 4-stage Module Segmentation & Line-by-Line Circuit Tracing.
+          </div>
+        )}
       </div>
     )}
 

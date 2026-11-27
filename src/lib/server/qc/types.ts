@@ -111,6 +111,73 @@ export interface QCReport {
     unpaired_svgs: string[];
     unpaired_jpgs: string[];
   } | null;
+  segmentation_pipeline?: {
+    module_segments: Array<{
+      module_number: string;
+      module_title: string;
+      pages: number[];
+      sheet_codes: string[];
+      output_sheets: string[];
+      component_count: number;
+      wire_count: number;
+      confirmed_fine: number;
+      wrong_count: number;
+      score: number;
+      status: string;
+    }>;
+    page_segments: Array<{
+      page_number: number;
+      sheet_code: string;
+      module_number: string;
+      functional_segment: string;
+      component_count: number;
+      wire_count: number;
+      matched_output_sheets: string[];
+      status: string;
+    }>;
+    functional_segments: Array<{
+      functional_segment: string;
+      modules: string[];
+      sheets: string[];
+      components: string[];
+      wire_count: number;
+    }>;
+    cross_sheet_paths: Array<{
+      node: string;
+      path: string;
+      sheet_count: number;
+      status: string;
+    }>;
+    line_by_line_validation: Array<{
+      line_no: number;
+      module_number: string;
+      sheet_code: string;
+      page: number;
+      functional_segment: string;
+      wire_no: string;
+      colour: string;
+      size_mm2: string | number | null;
+      from_node: string;
+      to_node: string;
+      cross_sheet_path?: string | null;
+      validation_status: "CONFIRMED_FINE" | "WRONG_CRITICAL" | "WRONG_REVIEW" | "UNVERIFIED_INPUT_ONLY";
+      verdict: string;
+      remediation: string;
+      evidence: string;
+    }>;
+    validation_summary: {
+      total_modules: number;
+      total_pages_segmented: number;
+      total_functional_zones: number;
+      total_lines_traced: number;
+      confirmed_fine_count: number;
+      wrong_count: number;
+      unverified_count: number;
+      cross_sheet_paths_count: number;
+      overall_score: number;
+      verdict_banner: string;
+    };
+  } | null;
 }
 
 export interface QCJobCreationResponse {

@@ -473,6 +473,7 @@ export function validateAndSanitizeReport(
     circuit_impacts: Array.isArray(obj.circuit_impacts) ? (obj.circuit_impacts as any) : undefined,
     components_detected: Array.isArray(obj.components_detected) ? (obj.components_detected as any) : undefined,
     svg_jpg_pairing: (obj.svg_jpg_pairing && typeof obj.svg_jpg_pairing === "object") ? (obj.svg_jpg_pairing as any) : undefined,
+    segmentation_pipeline: (obj.segmentation_pipeline && typeof obj.segmentation_pipeline === "object") ? (obj.segmentation_pipeline as any) : undefined,
   };
 }
 

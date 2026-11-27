@@ -21,6 +21,7 @@ from .extract import AnthropicClient, ExtractionClient, extract_sheet
 from .fontcheck import check_fonts
 from .rules import Expected, Observation, evaluate, FAIL, PASS, REVIEW, _finding
 from .score import calculate_compliance_score
+from .segmenter import run_hierarchical_segmentation_and_tracing
 from .standards.disciplines import detect_discipline
 from .svg_truth import malformed_labels
 from .symbols import detect_components_from_svg, detect_components_from_text_lines, enrich_finding_diagnostics
@@ -425,6 +426,28 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
         index = ComponentIndex()
         disc, _ = detect_discipline("", filename=file.filename or "")
         scorecard = calculate_compliance_score(findings, total_observations=len(observations), overall_outcome=overall)
+
+        # 4-Stage Hierarchical Segmentation, Cross-Sheet Path Tracing & Line-by-Line Output Validation
+        input_page_dicts = [
+            {
+                "page_number": idx + 1,
+                "name": getattr(pg, "name", f"Page {idx + 1}"),
+                "text_raw": getattr(pg, "text_raw", "") or "",
+            }
+            for idx, pg in enumerate(pages)
+        ]
+        out_sheet_list = list(pkg_result.get("sheet_names", []) if pkg_result else [])
+        if not out_sheet_list and output_manifest and isinstance(output_manifest.get("sheetNames"), list):
+            out_sheet_list = output_manifest.get("sheetNames") or []
+        segmentation_pipeline = run_hierarchical_segmentation_and_tracing(
+            input_pages=input_page_dicts,
+            output_wires=pkg_result.get("human_wires", []) if pkg_result else [],
+            output_components=oem_components,
+            output_sheet_names=out_sheet_list,
+            findings=findings,
+            overall_score=scorecard.quality_score,
+        )
+
         return {
             "report_id": f"RPT-{uuid.uuid4().hex[:10].upper()}",
             "document_name": file.filename or "document",
@@ -468,6 +491,7 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
             "will_work_count": pkg_result["will_work_count"] if pkg_result else None,
             "will_not_work_count": pkg_result["will_not_work_count"] if pkg_result else None,
             "documentation_error_count": pkg_result["documentation_error_count"] if pkg_result else None,
+            "segmentation_pipeline": segmentation_pipeline,
             "flagged_gaps": uncertain,
             "page_errors": errors,
             "pages_rendered": pages_rendered,

@@ -29,6 +29,25 @@ _LABEL_RE = re.compile(
     r"^\s*(?:(?P<no>[A-Z]?\d{1,4}[A-Z]?)\s+)?(?P<col>[A-Z]{2}(?:/[A-Z]{2})?)(?:\s+(?P<size>\d+(?:\.\d+)?))?\s*$"
 )
 _SIZE_UNIT_RE = re.compile(r"(?i)\s*mm\s*[²2]?\s*$")
+_COMPACT_OEM_RE = re.compile(
+    r"^\s*(?P<size>\d+(?:\.\d+)?)\s*(?P<col>[A-Za-z]{1,2}(?:/[A-Za-z]{1,2})?)\s*$"
+)
+
+
+def to_iec_colour(code: Optional[str]) -> Optional[str]:
+    """Map single-letter or OEM colour abbreviation (e.g. Gr, Y, R/B) to IEC 2-letter (GY, YE, RD/BK)."""
+    if not code:
+        return None
+    parts = [p.strip().upper() for p in code.split("/")]
+    mapped = []
+    for p in parts:
+        if p in HYUNDAI_TO_IEC_COLOURS:
+            mapped.append(HYUNDAI_TO_IEC_COLOURS[p])
+        elif p in BASE_COLOURS:
+            mapped.append(p)
+        else:
+            return None
+    return "/".join(mapped)
 
 
 def norm_colour(value: Optional[str]) -> Optional[str]:
@@ -91,3 +110,19 @@ class WireLabel:
         if m.group("no") is None and m.group("size") is None:
             return None  # a bare colour token is not a wire label
         return cls(m.group("no"), m.group("col"), norm_size(m.group("size")))
+
+    @classmethod
+    def parse_oem_compact(cls, text: str) -> Optional["WireLabel"]:
+        """Parse compact OEM PDF gauge+colour notation (e.g. '1.0Gr', '0.75Y', '0.75R/B')."""
+        m = _COMPACT_OEM_RE.match(text or "")
+        if not m:
+            return None
+        col_norm = m.group("col").upper()
+        parts = col_norm.split("/")
+        if not all(p in BASE_COLOURS for p in parts):
+            return None
+        sz = norm_size(m.group("size"))
+        if not sz:
+            return None
+        iec_col = to_iec_colour(col_norm) or col_norm
+        return cls(None, iec_col, sz)
