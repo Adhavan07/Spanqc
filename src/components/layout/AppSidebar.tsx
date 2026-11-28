@@ -31,7 +31,7 @@ export function AppSidebar() {
     { label: "Launchpad Overview", href: "/app", icon: Grid },
     { label: "Projects", href: "/app/projects", icon: FolderKanban },
     { label: "Unbox™ & QC", href: "/app/check", icon: Box, highlight: true },
-    { label: "Reports", href: "/app/history", icon: FileSpreadsheet },
+    { label: "Reports", href: "/app/history?view=reports", icon: FileSpreadsheet },
     { label: "History", href: "/app/history", icon: History },
     { label: "Standards", href: "/app/standards", icon: BookOpenCheck },
   ];
@@ -102,11 +102,14 @@ export function AppSidebar() {
             )}
             <nav className="space-y-1">
               {mainNavItems.map((item) => {
-                const isActive = pathname === item.href;
+                const isActive =
+                  item.label === "Reports"
+                    ? pathname.startsWith("/app/reports")
+                    : pathname === item.href;
                 const Icon = item.icon;
                 return (
                   <Link
-                    key={item.href}
+                    key={item.label}
                     href={item.href}
                     title={collapsed ? item.label : undefined}
                     className={clsx(
@@ -149,7 +152,7 @@ export function AppSidebar() {
                 const Icon = item.icon;
                 return (
                   <Link
-                    key={item.href}
+                    key={item.label}
                     href={item.href}
                     title={collapsed ? item.label : undefined}
                     className={clsx(
