@@ -71,6 +71,63 @@ def _wire_endpoints(w: Dict[str, Any]) -> Tuple[str, str]:
     return src, dst
 
 
+def _pair_mismatch_cost(oem_w: Dict[str, Any], h_w: Dict[str, Any]) -> int:
+    """Compute attribute + endpoint compatibility cost (0 = exact agreement)."""
+    cost = 0
+    oem_col = _canonical_colour(oem_w.get("colour"))
+    h_col = _canonical_colour(h_w.get("colour"))
+    if oem_col and h_col and oem_col != h_col:
+        cost += 2
+
+    oem_sz = norm_size(str(oem_w.get("size_mm2") or oem_w.get("size") or ""))
+    h_sz = norm_size(str(h_w.get("size_mm2") or h_w.get("size") or ""))
+    if oem_sz and h_sz and oem_sz != h_sz:
+        try:
+            ratio = abs(float(oem_sz) - float(h_sz)) / max(float(oem_sz), 0.01)
+        except ValueError:
+            ratio = 1.0
+        if ratio > 0.25:
+            cost += 2
+
+    oem_ends = _wire_endpoints(oem_w)
+    h_ends = _wire_endpoints(h_w)
+    if oem_ends[1] and h_ends[1] and set(oem_ends) != set(h_ends):
+        if oem_ends[1] not in h_ends[1] and h_ends[1] not in oem_ends[1]:
+            cost += 4
+    return cost
+
+
+def _pair_occurrences(
+    oem_list: List[Dict[str, Any]],
+    h_list: List[Dict[str, Any]],
+) -> List[Tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Greedily pair repeated occurrences of the same wire_no by minimum attribute/endpoint cost."""
+    candidates: List[Tuple[int, int, int]] = []
+    for oi, ow in enumerate(oem_list):
+        for hi, hw in enumerate(h_list):
+            candidates.append((_pair_mismatch_cost(ow, hw), oi, hi))
+    candidates.sort(key=lambda t: (t[0], t[1], t[2]))
+
+    used_o: set[int] = set()
+    used_h: set[int] = set()
+    paired: List[Tuple[int, Dict[str, Any], Dict[str, Any]]] = []
+    for _, oi, hi in candidates:
+        if oi in used_o or hi in used_h:
+            continue
+        used_o.add(oi)
+        used_h.add(hi)
+        paired.append((oi, oem_list[oi], h_list[hi]))
+
+    # If Input has more occurrences of this wire_no than Output, pair remaining Input rows with best match in h_list
+    for oi, ow in enumerate(oem_list):
+        if oi not in used_o:
+            best_hw = min(h_list, key=lambda hw: _pair_mismatch_cost(ow, hw))
+            paired.append((oi, ow, best_hw))
+
+    paired.sort(key=lambda t: t[0])
+    return [(ow, hw) for _, ow, hw in paired]
+
+
 def diff_oem_vs_human_netlists(
     oem_wires: List[Dict[str, Any]],
     human_wires: List[Dict[str, Any]],
@@ -80,11 +137,11 @@ def diff_oem_vs_human_netlists(
     findings: List[dict] = []
     impacts: List[CircuitImpact] = []
 
-    oem_by_wire: Dict[str, Dict[str, Any]] = {}
+    oem_by_wire: Dict[str, List[Dict[str, Any]]] = {}
     for w in oem_wires:
         wn = norm_wire_no(w.get("wire_no"))
         if wn:
-            oem_by_wire[wn] = w
+            oem_by_wire.setdefault(wn, []).append(w)
 
     human_by_wire: Dict[str, List[Dict[str, Any]]] = {}
     for w in human_wires:
@@ -96,166 +153,180 @@ def diff_oem_vs_human_netlists(
     verified_working_wires = 0
     swapped_wire_pairs_seen: set[frozenset[str]] = set()
 
-    # 1. Generic Input OEM vs. Output Redraw Wire & Pin Comparison
-    for wn, oem_w in oem_by_wire.items():
+    paired_by_wire: Dict[str, List[Tuple[Dict[str, Any], Dict[str, Any]]]] = {}
+    missing_wires: List[Tuple[str, Dict[str, Any]]] = []
+    for wn, oem_list in oem_by_wire.items():
         h_matches = human_by_wire.get(wn)
+        if not h_matches:
+            missing_wires.append((wn, oem_list[0]))
+        else:
+            paired_by_wire[wn] = _pair_occurrences(oem_list, h_matches)
+
+    # 1A. Report Missing Conductors (once per missing wire_no)
+    for wn, oem_w in missing_wires:
         oem_col = _canonical_colour(oem_w.get("colour"))
         oem_sz = norm_size(str(oem_w.get("size_mm2") or oem_w.get("size") or ""))
         oem_page = oem_w.get("page", 1)
         oem_src = str(oem_w.get("source_comp") or oem_w.get("source") or f"Input Page {oem_page}")
         oem_dst = str(oem_w.get("dest_pin") or oem_w.get("dest_comp") or oem_w.get("destination") or "")
         oem_node = f"Input OEM (Page {oem_page}): Wire {wn} ({oem_col} {oem_sz or '?'}mm²) [{oem_src} -> {oem_dst or 'Pin'}]"
-
-        if not h_matches:
-            if human_by_wire:  # Only flag missing when output wires exist
-                f = _finding(
-                    "LMS-01", "Netlist Conductor Continuity", FAIL,
-                    f"Missing Conductor Net [{wn}] in Output",
-                    f"Wire {wn} ({oem_col} {oem_sz or '?'}mm²) exists in Input OEM schematic but is missing from all Output SVG/JPG sheets.",
-                    expected=f"{wn} {oem_col} {oem_sz or ''}".strip(),
-                    detected="ABSENT in Output SVGs/JPGs",
-                    evidence=oem_w.get("evidence_text") or oem_node,
-                    page=oem_page,
-                    confidence=0.96,
-                )
-                f["node_reference_oem"] = oem_node
-                f["node_reference_redraw"] = f"Output SVG/JPG Package: Wire [{wn}] missing"
-                f["root_cause"] = f"Conductor net [{wn}] documented at [{oem_src} -> {oem_dst or 'Pin'}] in Input PDF was dropped during redrawing into Output sheets."
-                f["future_problem"] = f"Circuit branch powered or signaled by wire {wn} remains open; downstream component will fail to operate during testing and field use."
-                f["remediation_required"] = f"Add wire label '{wn} {oem_col} {oem_sz or ''}' and restore conductor path from {oem_src} to {oem_dst or 'destination'} in Output SVG."
-                findings.append(f)
-                impacts.append(_attach_impact(f, "Output SVG/JPG"))
-            continue
-
-        matched += 1
-        h_w = h_matches[0]
-        h_col = _canonical_colour(h_w.get("colour"))
-        h_sz = norm_size(str(h_w.get("size_mm2") or h_w.get("size") or ""))
-        h_sheet = str(h_w.get("source") or h_w.get("sheet") or f"Sheet {h_w.get('page', 1)}")
-        h_src = str(h_w.get("source_comp") or h_w.get("source") or h_sheet)
-        h_dst = str(h_w.get("dest_pin") or h_w.get("dest_comp") or h_w.get("destination") or "")
-        h_node = f"Output ({h_sheet}): Wire {wn} ({h_col} {h_sz or '?'}mm²) [{h_src} -> {h_dst or 'Pin'}]"
-
-        wire_is_healthy = True
-
-        # 1A. Colour mismatch check
-        if oem_col and h_col and oem_col != h_col:
-            wire_is_healthy = False
-            critical_col = (
-                ("RD" in oem_col and "BK" in h_col)
-                or ("BK" in oem_col and "RD" in h_col)
-                or ("GN/YE" in (oem_col, h_col))
-            )
+        if human_by_wire:  # Only flag missing when output wires exist
             f = _finding(
-                "LMS-06", "Wire Colour Code Mismatch", FAIL if critical_col else REVIEW,
-                f"Colour Mismatch on Wire [{wn}]: {h_col} vs OEM {oem_col}",
-                f"Input OEM specifies colour '{oem_col}' for wire {wn}, but Output SVG sheet [{h_sheet}] shows '{h_col}'.",
+                "LMS-01", "Netlist Conductor Continuity", FAIL,
+                f"Missing Conductor Net [{wn}] in Output",
+                f"Wire {wn} ({oem_col} {oem_sz or '?'}mm²) exists in Input OEM schematic but is missing from all Output SVG/JPG sheets.",
                 expected=f"{wn} {oem_col} {oem_sz or ''}".strip(),
-                detected=f"{wn} {h_col} {h_sz or ''}".strip(),
-                evidence=f"OEM: {oem_col} | Output ({h_sheet}): {h_col}",
-                page=h_w.get("page", oem_page),
-                confidence=0.97,
+                detected="ABSENT in Output SVGs/JPGs",
+                evidence=oem_w.get("evidence_text") or oem_node,
+                page=oem_page,
+                confidence=0.96,
             )
             f["node_reference_oem"] = oem_node
-            f["node_reference_redraw"] = h_node
-            f["root_cause"] = f"Drafting colour code error on SVG sheet [{h_sheet}]: '{h_col}' drawn instead of OEM '{oem_col}'."
-            f["future_problem"] = "Technicians and harness builders will route wrong colour conductors, risking polarity swap or misdiagnosis."
-            f["remediation_required"] = f"Change wire {wn} colour callout on SVG [{h_sheet}] from '{h_col}' to '{oem_col}' and re-export JPG."
+            f["node_reference_redraw"] = f"Output SVG/JPG Package: Wire [{wn}] missing"
+            f["root_cause"] = f"Conductor net [{wn}] documented at [{oem_src} -> {oem_dst or 'Pin'}] in Input PDF was dropped during redrawing into Output sheets."
+            f["future_problem"] = f"Circuit branch powered or signaled by wire {wn} remains open; downstream component will fail to operate during testing and field use."
+            f["remediation_required"] = f"Add wire label '{wn} {oem_col} {oem_sz or ''}' and restore conductor path from {oem_src} to {oem_dst or 'destination'} in Output SVG."
             findings.append(f)
-            impacts.append(_attach_impact(f, h_sheet))
+            impacts.append(_attach_impact(f, "Output SVG/JPG"))
 
-        # 1B. Cross-section / gauge mismatch check (>25% deviation)
-        if oem_sz and h_sz and oem_sz != h_sz:
-            try:
-                ratio = abs(float(oem_sz) - float(h_sz)) / max(float(oem_sz), 0.01)
-            except ValueError:
-                ratio = 1.0
-            if ratio > 0.25:
-                undersized = float(h_sz) < float(oem_sz) * 0.75
-                if undersized:
-                    wire_is_healthy = False
+    # 1B. Generic Input OEM vs. Output Redraw Wire & Pin Comparison across matched occurrences
+    for wn, pairs in paired_by_wire.items():
+        matched += 1
+        wire_all_healthy = True
+
+        for oem_w, h_w in pairs:
+            oem_col = _canonical_colour(oem_w.get("colour"))
+            oem_sz = norm_size(str(oem_w.get("size_mm2") or oem_w.get("size") or ""))
+            oem_page = oem_w.get("page", 1)
+            oem_src = str(oem_w.get("source_comp") or oem_w.get("source") or f"Input Page {oem_page}")
+            oem_dst = str(oem_w.get("dest_pin") or oem_w.get("dest_comp") or oem_w.get("destination") or "")
+            oem_node = f"Input OEM (Page {oem_page}): Wire {wn} ({oem_col} {oem_sz or '?'}mm²) [{oem_src} -> {oem_dst or 'Pin'}]"
+
+            h_col = _canonical_colour(h_w.get("colour"))
+            h_sz = norm_size(str(h_w.get("size_mm2") or h_w.get("size") or ""))
+            h_sheet = str(h_w.get("source") or h_w.get("sheet") or f"Sheet {h_w.get('page', 1)}")
+            h_src = str(h_w.get("source_comp") or h_w.get("source") or h_sheet)
+            h_dst = str(h_w.get("dest_pin") or h_w.get("dest_comp") or h_w.get("destination") or "")
+            h_node = f"Output ({h_sheet}): Wire {wn} ({h_col} {h_sz or '?'}mm²) [{h_src} -> {h_dst or 'Pin'}]"
+
+            # Colour mismatch check
+            if oem_col and h_col and oem_col != h_col:
+                wire_all_healthy = False
+                critical_col = (
+                    ("RD" in oem_col and "BK" in h_col)
+                    or ("BK" in oem_col and "RD" in h_col)
+                    or ("GN/YE" in (oem_col, h_col))
+                )
                 f = _finding(
-                    "LMS-05", "Wire Gauge Deviation", FAIL if undersized else REVIEW,
-                    f"Gauge Size Deviation on Wire [{wn}]: {h_sz}mm² vs OEM {oem_sz}mm²",
-                    f"Input OEM specifies {oem_sz}mm² for wire {wn}, but Output sheet [{h_sheet}] specifies {h_sz}mm².",
-                    expected=f"{wn} {oem_col} {oem_sz}mm²",
-                    detected=f"{wn} {h_col} {h_sz}mm²",
-                    evidence=f"OEM: {oem_sz}mm² | Output ({h_sheet}): {h_sz}mm²",
+                    "LMS-06", "Wire Colour Code Mismatch", FAIL if critical_col else REVIEW,
+                    f"Colour Mismatch on Wire [{wn}]: {h_col} vs OEM {oem_col}",
+                    f"Input OEM specifies colour '{oem_col}' for wire {wn}, but Output SVG sheet [{h_sheet}] shows '{h_col}'.",
+                    expected=f"{wn} {oem_col} {oem_sz or ''}".strip(),
+                    detected=f"{wn} {h_col} {h_sz or ''}".strip(),
+                    evidence=f"OEM: {oem_col} | Output ({h_sheet}): {h_col}",
                     page=h_w.get("page", oem_page),
                     confidence=0.97,
                 )
                 f["node_reference_oem"] = oem_node
                 f["node_reference_redraw"] = h_node
-                f["root_cause"] = f"Cross-section attribute on wire {wn} in SVG [{h_sheet}] set to {h_sz}mm² instead of {oem_sz}mm²."
-                f["future_problem"] = (
-                    f"Undersized {h_sz}mm² conductor can overheat and melt insulation under rated current load."
-                    if undersized
-                    else f"Incorrect wire gauge {h_sz}mm² causes BOM mismatch and wrong terminal crimp sizing."
-                )
-                f["remediation_required"] = f"Update wire {wn} cross-section from {h_sz} to {oem_sz} mm² on SVG [{h_sheet}]."
+                f["root_cause"] = f"Drafting colour code error on SVG sheet [{h_sheet}]: '{h_col}' drawn instead of OEM '{oem_col}'."
+                f["future_problem"] = "Technicians and harness builders will route wrong colour conductors, risking polarity swap or misdiagnosis."
+                f["remediation_required"] = f"Change wire {wn} colour callout on SVG [{h_sheet}] from '{h_col}' to '{oem_col}' and re-export JPG."
                 findings.append(f)
                 impacts.append(_attach_impact(f, h_sheet))
 
-        # 1C. Generic Undirected Endpoint / Pin Swap & Mismatch Check
-        oem_ends = _wire_endpoints(oem_w)
-        h_ends = _wire_endpoints(h_w)
-        if oem_ends[1] and h_ends[1] and set(oem_ends) != set(h_ends):
-            if oem_ends[1] not in h_ends[1] and h_ends[1] not in oem_ends[1]:
-                wire_is_healthy = False
-                swapped_partner = None
-                for other_wn, other_oem in oem_by_wire.items():
-                    if other_wn == wn:
-                        continue
-                    other_h_list = human_by_wire.get(other_wn)
-                    if not other_h_list:
-                        continue
-                    o_oem_ends = _wire_endpoints(other_oem)
-                    o_h_ends = _wire_endpoints(other_h_list[0])
-                    if o_oem_ends[1] == h_ends[1] and oem_ends[1] == o_h_ends[1]:
-                        swapped_partner = other_wn
-                        break
-
-                if swapped_partner:
-                    pair_key = frozenset({wn, swapped_partner})
-                    if pair_key not in swapped_wire_pairs_seen:
-                        swapped_wire_pairs_seen.add(pair_key)
-                        f = _finding(
-                            "LMS-03", "Reversed Pinout / Endpoint Swap", FAIL,
-                            f"Swapped pinout detected between wires {wn} and {swapped_partner}",
-                            f"Wire {wn} terminates at {h_dst or h_ends[1]} (OEM expects {oem_dst or oem_ends[1]}) while {swapped_partner} took {oem_dst or oem_ends[1]}.",
-                            expected=f"{wn}->{oem_dst or oem_ends[1]}",
-                            detected=f"{wn}->{h_dst or h_ends[1]} (Swapped with {swapped_partner})",
-                            evidence=f"{wn}: {h_dst} | {swapped_partner} swapped",
-                            page=h_w.get("page", oem_page),
-                            confidence=0.98,
-                        )
-                        f["node_reference_oem"] = oem_node
-                        f["node_reference_redraw"] = h_node
-                        f["root_cause"] = f"Terminal assignments for {wn} and {swapped_partner} were transposed during schematic redrawing on {h_sheet}."
-                        f["future_problem"] = "Swapped pinout cross-energizes the wrong load/signal path and prevents intended circuit operation."
-                        f["remediation_required"] = f"Swap terminal connections for {wn} and {swapped_partner} on SVG [{h_sheet}] to match OEM."
-                        findings.append(f)
-                        impacts.append(_attach_impact(f, h_sheet))
-                else:
+            # Cross-section / gauge mismatch check (>25% deviation)
+            if oem_sz and h_sz and oem_sz != h_sz:
+                try:
+                    ratio = abs(float(oem_sz) - float(h_sz)) / max(float(oem_sz), 0.01)
+                except ValueError:
+                    ratio = 1.0
+                if ratio > 0.25:
+                    undersized = float(h_sz) < float(oem_sz) * 0.75
+                    if undersized:
+                        wire_all_healthy = False
                     f = _finding(
-                        "LMS-03", "Endpoint / Pin Mismatch", FAIL,
-                        f"Endpoint mismatch on wire {wn}: Output [{h_dst or h_ends[1]}] vs OEM [{oem_dst or oem_ends[1]}]",
-                        f"Wire {wn} connects to '{h_dst or h_ends[1]}' in Output [{h_sheet}], whereas Input OEM connects to '{oem_dst or oem_ends[1]}'.",
-                        expected=f"{wn} -> {oem_dst or oem_ends[1]}",
-                        detected=f"{wn} -> {h_dst or h_ends[1]}",
-                        evidence=f"OEM: {oem_dst} | Output: {h_dst}",
+                        "LMS-05", "Wire Gauge Deviation", FAIL if undersized else REVIEW,
+                        f"Gauge Size Deviation on Wire [{wn}]: {h_sz}mm² vs OEM {oem_sz}mm²",
+                        f"Input OEM specifies {oem_sz}mm² for wire {wn}, but Output sheet [{h_sheet}] specifies {h_sz}mm².",
+                        expected=f"{wn} {oem_col} {oem_sz}mm²",
+                        detected=f"{wn} {h_col} {h_sz}mm²",
+                        evidence=f"OEM: {oem_sz}mm² | Output ({h_sheet}): {h_sz}mm²",
                         page=h_w.get("page", oem_page),
-                        confidence=0.95,
+                        confidence=0.97,
                     )
                     f["node_reference_oem"] = oem_node
                     f["node_reference_redraw"] = h_node
-                    f["root_cause"] = f"Wire {wn} routed to wrong destination node '{h_dst or h_ends[1]}' on sheet [{h_sheet}]."
-                    f["future_problem"] = "Signal or supply fails to reach its intended OEM destination node."
-                    f["remediation_required"] = f"Re-route wire {wn} destination on SVG [{h_sheet}] from '{h_dst or h_ends[1]}' to '{oem_dst or oem_ends[1]}'."
+                    f["root_cause"] = f"Cross-section attribute on wire {wn} in SVG [{h_sheet}] set to {h_sz}mm² instead of {oem_sz}mm²."
+                    f["future_problem"] = (
+                        f"Undersized {h_sz}mm² conductor can overheat and melt insulation under rated current load."
+                        if undersized
+                        else f"Incorrect wire gauge {h_sz}mm² causes BOM mismatch and wrong terminal crimp sizing."
+                    )
+                    f["remediation_required"] = f"Update wire {wn} cross-section from {h_sz} to {oem_sz} mm² on SVG [{h_sheet}]."
                     findings.append(f)
                     impacts.append(_attach_impact(f, h_sheet))
 
-        if wire_is_healthy:
+            # Generic Undirected Endpoint / Pin Swap & Mismatch Check
+            oem_ends = _wire_endpoints(oem_w)
+            h_ends = _wire_endpoints(h_w)
+            if oem_ends[1] and h_ends[1] and set(oem_ends) != set(h_ends):
+                if oem_ends[1] not in h_ends[1] and h_ends[1] not in oem_ends[1]:
+                    wire_all_healthy = False
+                    swapped_partner = None
+                    for other_wn, other_pairs in paired_by_wire.items():
+                        if other_wn == wn:
+                            continue
+                        for other_oem, other_h in other_pairs:
+                            o_oem_ends = _wire_endpoints(other_oem)
+                            o_h_ends = _wire_endpoints(other_h)
+                            if o_oem_ends[1] == h_ends[1] and oem_ends[1] == o_h_ends[1]:
+                                swapped_partner = other_wn
+                                break
+                        if swapped_partner:
+                            break
+
+                    if swapped_partner:
+                        pair_key = frozenset({wn, swapped_partner})
+                        if pair_key not in swapped_wire_pairs_seen:
+                            swapped_wire_pairs_seen.add(pair_key)
+                            f = _finding(
+                                "LMS-03", "Reversed Pinout / Endpoint Swap", FAIL,
+                                f"Swapped pinout detected between wires {wn} and {swapped_partner}",
+                                f"Wire {wn} terminates at {h_dst or h_ends[1]} (OEM expects {oem_dst or oem_ends[1]}) while {swapped_partner} took {oem_dst or oem_ends[1]}.",
+                                expected=f"{wn}->{oem_dst or oem_ends[1]}",
+                                detected=f"{wn}->{h_dst or h_ends[1]} (Swapped with {swapped_partner})",
+                                evidence=f"{wn}: {h_dst} | {swapped_partner} swapped",
+                                page=h_w.get("page", oem_page),
+                                confidence=0.98,
+                            )
+                            f["node_reference_oem"] = oem_node
+                            f["node_reference_redraw"] = h_node
+                            f["root_cause"] = f"Terminal assignments for {wn} and {swapped_partner} were transposed during schematic redrawing on {h_sheet}."
+                            f["future_problem"] = "Swapped pinout cross-energizes the wrong load/signal path and prevents intended circuit operation."
+                            f["remediation_required"] = f"Swap terminal connections for {wn} and {swapped_partner} on SVG [{h_sheet}] to match OEM."
+                            findings.append(f)
+                            impacts.append(_attach_impact(f, h_sheet))
+                    else:
+                        f = _finding(
+                            "LMS-03", "Endpoint / Pin Mismatch", FAIL,
+                            f"Endpoint mismatch on wire {wn}: Output [{h_dst or h_ends[1]}] vs OEM [{oem_dst or oem_ends[1]}]",
+                            f"Wire {wn} connects to '{h_dst or h_ends[1]}' in Output [{h_sheet}], whereas Input OEM connects to '{oem_dst or oem_ends[1]}'.",
+                            expected=f"{wn} -> {oem_dst or oem_ends[1]}",
+                            detected=f"{wn} -> {h_dst or h_ends[1]}",
+                            evidence=f"OEM: {oem_dst} | Output: {h_dst}",
+                            page=h_w.get("page", oem_page),
+                            confidence=0.95,
+                        )
+                        f["node_reference_oem"] = oem_node
+                        f["node_reference_redraw"] = h_node
+                        f["root_cause"] = f"Wire {wn} routed to wrong destination node '{h_dst or h_ends[1]}' on sheet [{h_sheet}]."
+                        f["future_problem"] = "Signal or supply fails to reach its intended OEM destination node."
+                        f["remediation_required"] = f"Re-route wire {wn} destination on SVG [{h_sheet}] from '{h_dst or h_ends[1]}' to '{oem_dst or oem_ends[1]}'."
+                        findings.append(f)
+                        impacts.append(_attach_impact(f, h_sheet))
+
+        if wire_all_healthy:
             verified_working_wires += 1
 
     # 2. Generic Data-Driven Output Quality Flags (malformed labels, font violations, unused stubs)

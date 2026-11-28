@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -235,6 +236,9 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
             except Exception:
                 output_manifest = None
 
+        if not re.fullmatch(r"extract_v\d+", prompt_version):
+            raise HTTPException(422, f"Invalid prompt_version {prompt_version!r}: must match extract_v<N>.")
+
         expected = _parse_expected(expected_netlist_json)
         pages = _pages(data, file.filename or "document")
         has_vector = any(getattr(p, "svg_raw", None) is not None or bool(getattr(p, "text_raw", None) and p.text_raw.strip()) for p in pages)
@@ -319,7 +323,6 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
 
             pdf_obs: List[Observation] = []
             if getattr(page, "text_raw", None) and not page.svg_raw:
-                import re
                 lines = [l.strip() for l in page.text_raw.splitlines() if l.strip()]
                 for cm in detect_components_from_text_lines(lines, sheet_name=page.name or f"Page {n}"):
                     ck = (cm.sheet, cm.designator.upper())
@@ -432,7 +435,10 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
             {
                 "page_number": idx + 1,
                 "name": getattr(pg, "name", f"Page {idx + 1}"),
-                "text_raw": getattr(pg, "text_raw", "") or "",
+                "text_raw": (
+                    getattr(pg, "text_raw", None)
+                    or "\n".join(o.evidence for o in observations if o.page == idx + 1 and o.evidence)
+                ),
             }
             for idx, pg in enumerate(pages)
         ]

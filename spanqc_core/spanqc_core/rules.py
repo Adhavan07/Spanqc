@@ -448,14 +448,15 @@ def evaluate(
                         evidence=o.evidence, page=o.page, zone=o.zone
                     ))
 
-        for key, group in groups.items():
-            if key not in exp_by_wire:
-                findings.append(_finding(
-                    "LMS-08", "Unlisted Wire", REVIEW,
-                    f"Wire '{key}' is in the drawing but not in the reference",
-                    "May be an addition, or the specification is incomplete.",
-                    detected=_fmt(group[0]), evidence=group[0].evidence, page=group[0].page, zone=group[0].zone
-                ))
+        if exp_by_wire:
+            for key, group in groups.items():
+                if key not in exp_by_wire:
+                    findings.append(_finding(
+                        "LMS-08", "Unlisted Wire", REVIEW,
+                        f"Wire '{key}' is in the drawing but not in the reference",
+                        "May be an addition, or the specification is incomplete.",
+                        detected=_fmt(group[0]), evidence=group[0].evidence, page=group[0].page, zone=group[0].zone
+                    ))
 
     # Evaluate overall status
     if any(f["outcome"] == FAIL for f in findings):

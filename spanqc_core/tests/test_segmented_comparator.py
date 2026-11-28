@@ -87,3 +87,72 @@ def test_full_comparison_run(tmp_path):
         assert csv_out.exists()
         assert "Finding ID,Rule Code,Severity" in csv_out.read_text()
 
+
+def test_self_comparison_repeated_wire_numbers_no_false_defects():
+    """FB1-1.svg compared against an exact copy must produce 0 netlist diff findings and not flag F2..F9."""
+    from fastapi.testclient import TestClient
+    from spanqc_core.api import create_app
+    from spanqc_core.svg_truth import parse_svg_sheet_full
+
+    fb1 = Path(__file__).resolve().parent / "fixtures" / "FB1-1.svg"
+    obs, _, svg_findings = parse_svg_sheet_full(fb1.read_text())
+    flagged_fuses = {f["evidence_text"] for f in svg_findings if f["rule_id"] == "LMS-09"}
+    for connected_fuse in ("F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"):
+        assert connected_fuse not in flagged_fuses
+
+    wires = [
+        {
+            "wire_no": o.wire_no,
+            "colour": o.colour,
+            "size_mm2": o.size,
+            "source": o.source,
+            "destination": o.destination,
+            "page": o.page,
+            "evidence_text": o.evidence,
+        }
+        for o in obs if o.wire_no
+    ]
+    diff_res = diff_oem_vs_human_netlists(wires, wires)
+    assert diff_res.findings == []
+    assert diff_res.will_not_work_count == 0
+
+    app = create_app(lambda: None)
+    r = TestClient(app).post(
+        "/api/v1/analyze",
+        files={
+            "file": ("FB1-1.svg", fb1.read_bytes(), "image/svg+xml"),
+            "output_file": ("FB1-1.svg", fb1.read_bytes(), "image/svg+xml"),
+        },
+    )
+    assert r.status_code == 200
+    j = r.json()
+    rule_ids = {f["rule_id"] for f in j["rule_findings"]}
+    # Must never emit LMS-08 (no reference netlist) or netlist diff failures on exact self-copy
+    assert "LMS-08" not in rule_ids
+    assert j["overall_outcome"] != "FAIL"
+    assert j["quality_score"] >= 90
+
+
+def test_segmenter_no_false_confirm_by_colour_size_and_review_not_critical_fail():
+    from spanqc_core.segmenter import run_hierarchical_segmentation_and_tracing
+    from spanqc_core.extract import load_prompt
+    import pytest
+
+    # Different wire number with identical colour+size must NOT be marked CONFIRMED_FINE
+    seg = run_hierarchical_segmentation_and_tracing(
+        input_pages=[{"page_number": 1, "name": "FB1-1", "text_raw": "122A WH 1.5"}],
+        output_wires=[{"wire_no": "999", "colour": "WH", "size_mm2": "1.5", "source": "Sheet1"}],
+        output_components=[],
+        output_sheet_names=["Sheet1.svg"],
+        findings=[
+            {"rule_id": "LMS-09", "outcome": "REVIEW", "severity": "MAJOR", "title": f"Review item {i}", "page_number": 1}
+            for i in range(6)
+        ],
+        overall_score=80,
+    )
+    assert seg["line_by_line_validation"][-1]["validation_status"] != "CONFIRMED_FINE"
+    assert all(m["status"] != "CRITICAL_FAIL" for m in seg["module_segments"])
+
+    with pytest.raises(ValueError):
+        load_prompt("../secrets")
+

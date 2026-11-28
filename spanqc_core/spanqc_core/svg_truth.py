@@ -419,18 +419,31 @@ def parse_svg_sheet_full(
                 page=page_number
             ))
 
-    # Generic check for unused fuse stubs across ANY fuse (not hardcoded F35/F36):
-    # A fuse stub with no nearby wire label inside 85px and at most 1 short rail stub is flagged for verification.
+    # Generic topology-based check for unused fuse stubs across ANY fuse (not hardcoded F35/F36):
+    # A fuse stub is only flagged as unused if NO connected conductor net reaches any wire label
+    # AND no observation already links to that fuse AND no wire label sits nearby.
+    fuse_wire_nets: set[int] = set()
+    for wx, wy in wire_coords:
+        for r, pts in net_points.items():
+            if any((wx - px) ** 2 + (wy - py) ** 2 <= 55.0 ** 2 for px, py in pts):
+                fuse_wire_nets.add(r)
+
     seen_unused_fuses: set[str] = set()
     for fx, fy, fname in fuses:
         if fname in seen_unused_fuses:
             continue
-        has_nearby_wire = any((fx - wx) ** 2 + (fy - wy) ** 2 <= 85.0 ** 2 for wx, wy in wire_coords)
-        if not has_nearby_wire:
+        has_linked_obs = any(o.source == fname or o.destination == fname for o in obs)
+        fuse_nets = [
+            r for r, pts in net_points.items()
+            if any((fx - px) ** 2 + (fy - py) ** 2 <= 60.0 ** 2 for px, py in pts)
+        ]
+        has_wire_on_net = any(r in fuse_wire_nets for r in fuse_nets)
+        has_nearby_wire = any((fx - wx) ** 2 + (fy - wy) ** 2 <= 90.0 ** 2 for wx, wy in wire_coords)
+        if not (has_linked_obs or has_wire_on_net or has_nearby_wire):
             seen_unused_fuses.add(fname)
             uncertain.append({
                 "what": f"Fuse {fname}",
-                "why": f"Unused fuse stub {fname} (no outgoing wire label drawn near fuse terminal)",
+                "why": f"Unused fuse stub {fname} (no outgoing wire drawn near fuse terminal)",
                 "page": page_number
             })
             findings.append(_finding(

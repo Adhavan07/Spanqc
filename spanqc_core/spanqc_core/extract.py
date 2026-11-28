@@ -79,7 +79,13 @@ class AnthropicClient:
 
 
 def load_prompt(version: str = "extract_v1") -> tuple[str, str]:
-    text = (PROMPT_DIR / f"{version}.md").read_text(encoding="utf-8")
+    if not re.fullmatch(r"extract_v\d+", version):
+        raise ValueError(f"Invalid prompt version {version!r}: must match extract_v<N>")
+    prompt_root = PROMPT_DIR.resolve()
+    prompt_path = (prompt_root / f"{version}.md").resolve()
+    if prompt_path.parent != prompt_root or not prompt_path.is_file():
+        raise FileNotFoundError(f"Prompt version {version!r} not found")
+    text = prompt_path.read_text(encoding="utf-8")
     return version, text
 
 

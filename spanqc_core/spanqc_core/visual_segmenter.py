@@ -191,41 +191,7 @@ def extract_visual_segments_and_defects(
                 },
             })
 
-    # Fallback if no specific component keywords found (e.g. custom or generic schematic)
-    if not segments:
-        # Segment sheet into standard CAD engineering zones (A-D quadrants)
-        segments.extend([
-            {
-                "id": "SEG_PWR",
-                "name": "Zone A: Power Infeed & Protection",
-                "category": "POWER",
-                "color": "#a855f7",
-                "bbox": {"left": 5.0, "top": 6.0, "width": 42.0, "height": 38.0},
-            },
-            {
-                "id": "SEG_CTRL",
-                "name": "Zone B: Controller & I/O Logic",
-                "category": "CONTROLLER",
-                "color": "#eab308",
-                "bbox": {"left": 52.0, "top": 6.0, "width": 42.0, "height": 38.0},
-            },
-            {
-                "id": "SEG_FIELD",
-                "name": "Zone C: Field Devices & Actuators",
-                "category": "ACTUATOR",
-                "color": "#06b6d4",
-                "bbox": {"left": 5.0, "top": 50.0, "width": 42.0, "height": 38.0},
-            },
-            {
-                "id": "SEG_TERM",
-                "name": "Zone D: Interconnect Terminal Matrix",
-                "category": "TERMINAL",
-                "color": "#10b981",
-                "bbox": {"left": 52.0, "top": 50.0, "width": 42.0, "height": 38.0},
-            },
-        ])
-
-    # 3. Never fabricate defects from page keywords.
+    # Never fabricate fake "Zone A-D" quadrants when no component text exists on sheet.
     # Deterministic defects must come strictly from evaluated wire/rule netlists (rules.py & netlist_diff.py).
     defects: List[Dict[str, Any]] = []
 

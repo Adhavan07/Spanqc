@@ -480,9 +480,15 @@ def run_hierarchical_segmentation_and_tracing(
 
         out_match = None
         if wn and wn in out_by_wire_no:
-            out_match = out_by_wire_no[wn][0]
-        elif (col, sz) in out_by_sig:
-            out_match = out_by_sig[(col, sz)][0]
+            cands = out_by_wire_no[wn]
+            # Pick candidate whose colour/size best aligns with this input wire occurrence
+            out_match = min(
+                cands,
+                key=lambda hw: (
+                    0 if (norm_colour(hw.get("colour")) or "") == col else 1,
+                    0 if (norm_size(str(hw.get("size_mm2") or hw.get("size") or "")) or "") == sz else 1,
+                ),
+            )
 
         if crit_f:
             v_status = "WRONG_CRITICAL"
@@ -490,6 +496,7 @@ def run_hierarchical_segmentation_and_tracing(
             fix_hint = crit_f.get("remediation_required") or "Fix conductor / pin mismatch to match OEM."
             wrong_count += 1
             module_map[rec["module_number"]]["wrong_count"] += 1
+            module_map[rec["module_number"]]["critical_count"] = module_map[rec["module_number"]].get("critical_count", 0) + 1
             module_map[rec["module_number"]]["score"] = max(40, module_map[rec["module_number"]]["score"] - 15)
         elif rev_f:
             v_status = "WRONG_REVIEW"
@@ -547,6 +554,8 @@ def run_hierarchical_segmentation_and_tracing(
         wrong_count += 1
         if f_mod in module_map:
             module_map[f_mod]["wrong_count"] += 1
+            if is_crit:
+                module_map[f_mod]["critical_count"] = module_map[f_mod].get("critical_count", 0) + 1
             module_map[f_mod]["score"] = max(40, module_map[f_mod]["score"] - (15 if is_crit else 7))
         all_traced_lines.insert(0, {
             "line_no": idx_f,
@@ -575,7 +584,8 @@ def run_hierarchical_segmentation_and_tracing(
     for m_num in sorted(module_map.keys(), key=lambda x: (int(x) if x.isdigit() else 999, x)):
         m = module_map[m_num]
         if m["wrong_count"] > 0:
-            m["status"] = "ISSUES_FOUND" if m["score"] >= 70 else "CRITICAL_FAIL"
+            has_crit = m.get("critical_count", 0) > 0
+            m["status"] = "CRITICAL_FAIL" if (has_crit and m["score"] < 70) else "ISSUES_FOUND"
         elif m["confirmed_fine"] > 0:
             m["status"] = "FINE"
         else:
