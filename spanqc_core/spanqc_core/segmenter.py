@@ -239,7 +239,95 @@ def run_hierarchical_segmentation_and_tracing(
         for pc in page_comps:
             comp_locations.setdefault(pc.designator.upper(), []).append(f"M{mod_num}/P{pnum} ({sheet_code})")
 
-        # Extract context anchors sequentially so wires get realistic From -> To nodes
+        # Build spatial geometry tracer from PDF vector drawings & positioned text lines when available
+        geom = page.get("geometry") or {}
+        geom_segs = geom.get("segments") or []
+        geom_texts = geom.get("text_items") or []
+
+        geom_node_coords: List[Tuple[float, float, str]] = []
+        geom_net_points: Dict[int, List[Tuple[float, float]]] = {}
+        geom_parent: List[int] = list(range(len(geom_segs)))
+
+        def _gfind(i: int) -> int:
+            while geom_parent[i] != i:
+                geom_parent[i] = geom_parent[geom_parent[i]]
+                i = geom_parent[i]
+            return i
+
+        if len(geom_segs) > 1:
+            g_cells: Dict[Tuple[int, int], int] = {}
+            for s_idx, (pa, pb) in enumerate(geom_segs):
+                for pt in (pa, pb):
+                    cx, cy = int(round(pt[0] / 6.0)), int(round(pt[1] / 6.0))
+                    for dx in (-1, 0, 1):
+                        for dy in (-1, 0, 1):
+                            hit = g_cells.get((cx + dx, cy + dy))
+                            if hit is not None:
+                                ri, rj = _gfind(s_idx), _gfind(hit)
+                                if ri != rj:
+                                    geom_parent[ri] = rj
+                    g_cells.setdefault((cx, cy), s_idx)
+        for s_idx, (pa, pb) in enumerate(geom_segs):
+            geom_net_points.setdefault(_gfind(s_idx), []).extend((pa, pb))
+
+        if geom_texts:
+            for gx, gy, gt in geom_texts:
+                for gtok in re.split(r"[\s,;]+", gt):
+                    gtok_c = gtok.strip()
+                    if classify_designator(gtok_c):
+                        geom_node_coords.append((float(gx), float(gy), gtok_c))
+
+        def _seg_dist_sq(px: float, py: float, a: Tuple[float, float], b: Tuple[float, float]) -> float:
+            vx, vy = b[0] - a[0], b[1] - a[1]
+            wx, wy = px - a[0], py - a[1]
+            lsq = vx * vx + vy * vy
+            if lsq <= 1e-6:
+                return wx * wx + wy * wy
+            t = max(0.0, min(1.0, (wx * vx + wy * vy) / lsq))
+            return (px - (a[0] + t * vx)) ** 2 + (py - (a[1] + t * vy)) ** 2
+
+        def _trace_geom_endpoints(line_txt: str) -> Optional[Tuple[str, str]]:
+            if not geom_node_coords:
+                return None
+            # Find positioned text coordinates for this wire label
+            match_pt = next(((float(gx), float(gy)) for gx, gy, gt in geom_texts if gt == line_txt or line_txt in gt), None)
+            if match_pt is None:
+                return None
+            wx, wy = match_pt
+            if geom_segs:
+                best_i = min(range(len(geom_segs)), key=lambda i: _seg_dist_sq(wx, wy, geom_segs[i][0], geom_segs[i][1]))
+                if _seg_dist_sq(wx, wy, geom_segs[best_i][0], geom_segs[best_i][1]) <= 1800.0:
+                    pts = geom_net_points.get(_gfind(best_i), [])
+                    if pts:
+                        nd = []
+                        for nx, ny, nt in geom_node_coords:
+                            d2 = min((nx - px) ** 2 + (ny - py) ** 2 for px, py in pts)
+                            if d2 <= 3600.0:
+                                nd.append((d2, nt))
+                        nd.sort(key=lambda item: item[0])
+                        uniq: List[str] = []
+                        for _, nt in nd:
+                            if nt not in uniq:
+                                uniq.append(nt)
+                        if len(uniq) >= 2:
+                            return uniq[0], uniq[1]
+                        if len(uniq) == 1:
+                            return uniq[0], f"{func_seg.value} Node"
+            # Spatial 2D Euclidean proximity fallback using real PDF coordinates (not flat line order)
+            near = sorted(geom_node_coords, key=lambda item: (item[0] - wx) ** 2 + (item[1] - wy) ** 2)
+            uniq_near: List[str] = []
+            for _, _, nt in near:
+                if nt not in uniq_near:
+                    uniq_near.append(nt)
+                if len(uniq_near) >= 2:
+                    break
+            if len(uniq_near) >= 2:
+                return uniq_near[0], uniq_near[1]
+            if len(uniq_near) == 1:
+                return uniq_near[0], f"{func_seg.value} Node"
+            return None
+
+        # Text-line fallback anchors only when positioned PDF geometry is unavailable
         last_source_comp = mod_title.split(":")[0]
         next_dest_comp = f"{func_seg.value} Node"
         comp_indices: List[Tuple[int, str]] = []
@@ -250,7 +338,10 @@ def run_hierarchical_segmentation_and_tracing(
                     comp_indices.append((idx_l, tok_c))
                     break
 
-        def _nearest_endpoints(line_idx: int) -> Tuple[str, str]:
+        def _nearest_endpoints(line_idx: int, line_txt: str) -> Tuple[str, str]:
+            traced = _trace_geom_endpoints(line_txt)
+            if traced is not None:
+                return traced
             src = last_source_comp
             dst = next_dest_comp
             before = [c for idx_c, c in comp_indices if idx_c <= line_idx]
@@ -269,7 +360,7 @@ def run_hierarchical_segmentation_and_tracing(
             lab = WireLabel.parse(l) or WireLabel.parse_oem_compact(l)
             if not lab:
                 continue
-            src_node, dst_node = _nearest_endpoints(idx_l)
+            src_node, dst_node = _nearest_endpoints(idx_l, l)
             w_key = (lab.wire_no or "", lab.colour, lab.size or "", src_node, dst_node)
             if w_key in seen_page_wire_keys:
                 continue

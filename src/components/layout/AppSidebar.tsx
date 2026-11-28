@@ -31,7 +31,7 @@ export function AppSidebar() {
     { label: "Launchpad Overview", href: "/app", icon: Grid },
     { label: "Projects", href: "/app/projects", icon: FolderKanban },
     { label: "Unbox™ & QC", href: "/app/check", icon: Box, highlight: true },
-    { label: "Reports", href: "/app/reports/run-wh402", icon: FileSpreadsheet },
+    { label: "Reports", href: "/app/history", icon: FileSpreadsheet },
     { label: "History", href: "/app/history", icon: History },
     { label: "Standards", href: "/app/standards", icon: BookOpenCheck },
   ];

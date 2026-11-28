@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { db } from "@/lib/server/db";
 import { extractRequestAuth, validateDBSession } from "@/lib/server/auth/session";
 import { validateOrigin } from "@/lib/server/auth/csrf";
 import { hasPermission } from "@/lib/server/auth/rbac";
@@ -8,6 +9,74 @@ import {
   JobBridgeError,
 } from "@/lib/server/qc/job-bridge";
 import { DocumentValidationError } from "@/lib/server/qc/validator";
+
+export async function GET(request: Request) {
+  const auth = extractRequestAuth(request);
+  if (!auth.token) {
+    return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
+  }
+  const session = await validateDBSession(auth.token);
+  if (!session) {
+    return NextResponse.json({ detail: "Authentication required." }, { status: 401 });
+  }
+
+  const jobs = await db.qCJob.findMany({
+    where: { tenantId: session.tenantId },
+    include: { project: true },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  const items = jobs.map((j) => {
+    let qualityScore = j.overallOutcome === "PASS" ? 100 : 0;
+    let totalDiscrepancies = 0;
+    let criticalCount = 0;
+    let majorCount = 0;
+    let minorCount = 0;
+    if (j.resultReportJson) {
+      try {
+        const rep = JSON.parse(j.resultReportJson);
+        const fnd = Array.isArray(rep.rule_findings) ? rep.rule_findings : [];
+        totalDiscrepancies = fnd.length;
+        criticalCount = fnd.filter((f: any) => f.severity === "CRITICAL").length;
+        majorCount = fnd.filter((f: any) => f.severity === "MAJOR" || f.severity === "HIGH").length;
+        minorCount = fnd.filter((f: any) => f.severity === "MINOR" || f.severity === "MEDIUM").length;
+        qualityScore =
+          rep.quality_score ??
+          rep.segmentation_pipeline?.validation_summary?.overall_score ??
+          (j.overallOutcome === "PASS" ? 100 : Math.max(40, 100 - criticalCount * 12 - majorCount * 4));
+      } catch {
+        // Malformed report JSON falls back to 0 summary counts
+      }
+    }
+    return {
+      id: j.id,
+      project_id: j.projectId,
+      project_name: j.project?.name || "Inspection Project",
+      document_name: j.documentName,
+      document_sha256: j.documentSha256,
+      standard: j.standard,
+      status: j.status,
+      overall_result:
+        j.overallOutcome === "PASS"
+          ? "PASS"
+          : j.overallOutcome === "FAIL"
+            ? "FAIL"
+            : j.overallOutcome === "REVIEW"
+              ? "REVIEW"
+              : "PENDING",
+      quality_score: qualityScore,
+      total_discrepancies: totalDiscrepancies,
+      critical_count: criticalCount,
+      major_count: majorCount,
+      minor_count: minorCount,
+      page_count: j.totalPageCount,
+      created_at: j.createdAt.toISOString(),
+    };
+  });
+
+  return NextResponse.json({ items });
+}
 
 export async function POST(request: Request) {
   // 1. Authenticate server-side

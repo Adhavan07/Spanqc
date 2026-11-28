@@ -19,11 +19,13 @@ import {
   ArrowRight,
   Search,
 } from "lucide-react";
-import { INITIAL_PROJECTS, SAMPLE_STANDARDS } from "@/lib/data/sample-data";
+import { useEffect } from "react";
+import { STANDARD_PACKS } from "@/lib/standards/catalog";
+import { listProjectsApi, createProjectApi } from "@/lib/api/projects";
 import { Project } from "@/types";
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -31,30 +33,35 @@ export default function ProjectsPage() {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newCustomer, setNewCustomer] = useState("");
-  const [newStandard, setNewStandard] = useState("IPC/WHMA-A-620D");
+  const [newStandard, setNewStandard] = useState(STANDARD_PACKS[0].code);
 
-  const handleCreateProject = (e: React.FormEvent) => {
+  useEffect(() => {
+    listProjectsApi()
+      .then((list) => {
+        if (Array.isArray(list)) setProjects(list);
+      })
+      .catch((err) => console.warn("Failed to load projects:", err));
+  }, []);
+
+  const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName) return;
 
-    const created: Project = {
-      id: `proj-${Date.now()}`,
-      organization_id: "org-spandsons",
-      name: newName,
-      description: newDesc,
-      customer: newCustomer || "Internal R&D",
-      standard: newStandard,
-      created_at: new Date().toISOString(),
-      document_count: 0,
-      report_count: 0,
-      status: "ACTIVE",
-    };
-
-    setProjects([created, ...projects]);
-    setIsModalOpen(false);
-    setNewName("");
-    setNewDesc("");
-    setNewCustomer("");
+    try {
+      const created = await createProjectApi({
+        name: newName,
+        description: newDesc,
+        customer: newCustomer || "Internal R&D",
+        standard: newStandard,
+      });
+      setProjects([created, ...projects]);
+      setIsModalOpen(false);
+      setNewName("");
+      setNewDesc("");
+      setNewCustomer("");
+    } catch (err) {
+      console.error("Failed to create project:", err);
+    }
   };
 
   const filtered = projects.filter((p) =>
@@ -174,7 +181,7 @@ export default function ProjectsPage() {
             label="Default Compliance Standard"
             value={newStandard}
             onChange={(e) => setNewStandard(e.target.value)}
-            options={SAMPLE_STANDARDS.map((s) => ({
+            options={STANDARD_PACKS.map((s) => ({
               value: s.code,
               label: s.code,
               subtext: s.name,

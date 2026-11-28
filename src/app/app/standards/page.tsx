@@ -5,70 +5,20 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { SearchInput } from "@/components/ui/SearchInput";
-import { SAMPLE_STANDARDS } from "@/lib/data/sample-data";
+import { STANDARD_PACKS, AUTHORITATIVE_RULES } from "@/lib/standards/catalog";
 import { BookOpenCheck, ShieldCheck, CheckCircle2, ArrowRight } from "lucide-react";
 
 export default function WorkspaceStandardsPage() {
-  const [selectedStandard, setSelectedStandard] = useState(SAMPLE_STANDARDS[0].id);
+  const [selectedStandard, setSelectedStandard] = useState(STANDARD_PACKS[0].id);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const activeStd = SAMPLE_STANDARDS.find((s) => s.id === selectedStandard) || SAMPLE_STANDARDS[0];
+  const activeStd = STANDARD_PACKS.find((s) => s.id === selectedStandard) || STANDARD_PACKS[0];
 
-  const rulesMock = [
-    {
-      code: "RULE-WG-001",
-      section: "§4.1",
-      title: "Minimum Conductor Cross-Section / Wire Gauge",
-      desc: "Every conductor run must declare a nominal wire gauge (AWG or mm²) to verify ampacity and crimp tooling compliance.",
-      category: "WIRE_GAUGE",
-      severity: "CRITICAL" as const,
-    },
-    {
-      code: "RULE-CC-003",
-      section: "§66.5",
-      title: "DC & AC Color Code Identification",
-      desc: "Conductors must feature standard insulation color abbreviations (e.g. BLU for DC negative, BLK for phase, WHT for neutral).",
-      category: "COLOR_CODE",
-      severity: "MAJOR" as const,
-    },
-    {
-      code: "RULE-CR-004",
-      section: "§5.1.2",
-      title: "Terminal Crimp Wire Barrel Range Match",
-      desc: "Contact pin manufacturer wire accommodation range must encompass the specified conductor diameter.",
-      category: "TERMINATION",
-      severity: "MAJOR" as const,
-    },
-    {
-      code: "RULE-NET-007",
-      section: "§3.4.2",
-      title: "Planar Net Crossing Without Junction Symbol",
-      desc: "Crossing orthogonal net lines must include a bridge jump or explicit solder junction dot.",
-      category: "ROUTING",
-      severity: "MAJOR" as const,
-    },
-    {
-      code: "RULE-RD-002",
-      section: "ASME Y14.44",
-      title: "Unique Reference Designator Uniqueness",
-      desc: "Alphanumeric reference designator symbols (J1, P1, K1) must not be duplicated across components.",
-      category: "LABELING",
-      severity: "CRITICAL" as const,
-    },
-    {
-      code: "RULE-TB-005",
-      section: "ISO 7200",
-      title: "Title Block Mandatory Approval & Revision",
-      desc: "Engineering drawings must provide revision letter, drawing number, author, and approval signature before signoff.",
-      category: "RETENTION",
-      severity: "MINOR" as const,
-    },
-  ];
-
-  const filtered = rulesMock.filter(
+  const filtered = AUTHORITATIVE_RULES.filter(
     (r) =>
       r.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.code.toLowerCase().includes(searchQuery.toLowerCase())
+      r.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.desc.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -91,7 +41,7 @@ export default function WorkspaceStandardsPage() {
 
       {/* Standards Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {SAMPLE_STANDARDS.map((std) => (
+        {STANDARD_PACKS.map((std) => (
           <button
             key={std.id}
             onClick={() => setSelectedStandard(std.id)}

@@ -156,3 +156,58 @@ def test_segmenter_no_false_confirm_by_colour_size_and_review_not_critical_fail(
     with pytest.raises(ValueError):
         load_prompt("../secrets")
 
+
+def test_svg_input_vs_output_deduplicates_identical_findings():
+    from fastapi.testclient import TestClient
+    from spanqc_core.api import create_app
+
+    s25 = Path(__file__).resolve().parent / "fixtures" / "2-5.svg"
+    app = create_app(lambda: None)
+    r = TestClient(app).post(
+        "/api/v1/analyze",
+        files={
+            "file": ("2-5.svg", s25.read_bytes(), "image/svg+xml"),
+            "output_file": ("2-5.svg", s25.read_bytes(), "image/svg+xml"),
+        },
+    )
+    assert r.status_code == 200
+    j = r.json()
+    malformed = [f for f in j["rule_findings"] if f["rule_id"] == "LMS-06" and "81K" in (f.get("evidence_text") or "")]
+    assert len(malformed) == 1
+
+
+def test_pdf_vector_geometry_tracing_in_segmenter():
+    from spanqc_core.segmenter import run_hierarchical_segmentation_and_tracing
+
+    # Put wire text near a connected drawing line joining FB1 and CN-5,
+    # even though an unrelated component (CR99) sits closer in flat text line order.
+    seg = run_hierarchical_segmentation_and_tracing(
+        input_pages=[{
+            "page_number": 1,
+            "name": "Page 1",
+            "text_raw": "FB1\nCR99\n122A WH 1.5\nCN-5",
+            "geometry": {
+                "segments": [
+                    ((100.0, 100.0), (100.0, 220.0)),
+                    ((100.0, 220.0), (200.0, 220.0)),
+                ],
+                "text_items": [
+                    (100.0, 95.0, "FB1"),
+                    (105.0, 160.0, "122A WH 1.5"),
+                    (205.0, 220.0, "CN-5"),
+                    (400.0, 400.0, "CR99"),
+                ],
+            },
+        }],
+        output_wires=[{"wire_no": "122A", "colour": "WH", "size_mm2": "1.5", "source": "FB1-1.svg"}],
+        output_components=[],
+        output_sheet_names=["FB1-1.svg"],
+        findings=[],
+        overall_score=100,
+    )
+    lines = seg["line_by_line_validation"]
+    assert len(lines) == 1
+    assert "FB1" in lines[0]["from_node"]
+    assert "CN-5" in lines[0]["to_node"]
+    assert "CR99" not in lines[0]["from_node"] and "CR99" not in lines[0]["to_node"]
+

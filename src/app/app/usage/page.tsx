@@ -1,22 +1,59 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Progress } from "@/components/ui/Progress";
-import { INITIAL_QUOTA } from "@/lib/data/sample-data";
 import { Gauge, ArrowUpRight, Clock, AlertTriangle, ShieldCheck, CheckCircle2 } from "lucide-react";
 
 export default function UsagePage() {
-  const quota = INITIAL_QUOTA;
+  const [checksUsed, setChecksUsed] = useState(0);
+  const [checksLimit, setChecksLimit] = useState(100);
+  const [usageByProject, setUsageByProject] = useState<Array<{ name: string; checks: number; pct: number }>>([]);
 
-  const usageByProject = [
-    { name: "Commercial Avionics Harness WD-777", checks: 22, pct: 58 },
-    { name: "Industrial MCC Panel Gen-4", checks: 11, pct: 29 },
-    { name: "High-Voltage EV Battery Harness B-200", checks: 5, pct: 13 },
-  ];
+  useEffect(() => {
+    fetch("/api/v1/organizations/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((org) => {
+        if (org) {
+          setChecksUsed(org.used_monthly_checks ?? 0);
+          setChecksLimit(org.max_monthly_checks ?? 100);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/v1/qc/jobs")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((data) => {
+        const items = data.items || [];
+        const counts = new Map<string, number>();
+        for (const item of items) {
+          const pName = item.project_name || "General Inspection Project";
+          counts.set(pName, (counts.get(pName) || 0) + 1);
+        }
+        const total = Math.max(1, items.length);
+        setUsageByProject(
+          Array.from(counts.entries()).map(([name, checks]) => ({
+            name,
+            checks,
+            pct: Math.round((checks / total) * 100),
+          }))
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  const checksRemaining = Math.max(0, checksLimit - checksUsed);
+  const percentUsed = checksLimit > 0 ? Math.min(100, Math.round((checksUsed / checksLimit) * 100)) : 0;
+  const quota = {
+    checks_used: checksUsed,
+    checks_limit: checksLimit,
+    checks_remaining: checksRemaining,
+    percent_used: percentUsed,
+    status: percentUsed >= 95 ? "LIMIT REACHED" : "ACTIVE",
+  };
 
   return (
     <div className="space-y-6 pb-12">

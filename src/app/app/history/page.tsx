@@ -32,7 +32,54 @@ export default function HistoryPage() {
   const [reports, setReports] = useState<QCRun[]>([]);
 
   useEffect(() => {
-    setReports(getAllReportsList());
+    const localReports = getAllReportsList();
+    fetch("/api/v1/qc/jobs")
+      .then((res) => (res.ok ? res.json() : { items: [] }))
+      .then((data) => {
+        const apiRuns: QCRun[] = (data.items || []).map((j: any) => ({
+          id: j.id,
+          organization_id: "",
+          document_id: j.id,
+          project_id: j.project_id,
+          standard: j.standard,
+          status: j.status,
+          overall_result: j.overall_result || "PENDING",
+          quality_score: j.quality_score ?? 0,
+          total_rules_evaluated: j.total_discrepancies ?? 0,
+          total_discrepancies: j.total_discrepancies ?? 0,
+          critical_count: j.critical_count ?? 0,
+          major_count: j.major_count ?? 0,
+          minor_count: j.minor_count ?? 0,
+          pass_count: 0,
+          started_at: j.created_at,
+          document: {
+            id: j.id,
+            organization_id: "",
+            project_id: j.project_id,
+            filename: j.document_name,
+            file_size_bytes: 0,
+            mime_type: "application/pdf",
+            sha256_hash: j.document_sha256,
+            page_count: j.page_count || 1,
+            status: j.status,
+            created_at: j.created_at,
+          },
+          project: {
+            id: j.project_id,
+            organization_id: "",
+            name: j.project_name || "Inspection Project",
+            description: "",
+            standard: j.standard,
+            created_at: j.created_at,
+            document_count: 1,
+            report_count: 1,
+            status: "ACTIVE",
+          },
+        }));
+        const seen = new Set(apiRuns.map((r) => r.id));
+        setReports([...apiRuns, ...localReports.filter((lr) => !seen.has(lr.id))]);
+      })
+      .catch(() => setReports(localReports));
   }, []);
 
   const filtered = reports.filter((item) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/context/auth-context";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -25,68 +25,85 @@ import {
   Zap,
   Grid,
 } from "lucide-react";
-import { INITIAL_QUOTA, INITIAL_PROJECTS, SAMPLE_QC_RUN_WH402 } from "@/lib/data/sample-data";
+
+interface DashboardJobRow {
+  id: string;
+  documentName: string;
+  projectName: string;
+  standard: string;
+  date: string;
+  result: "PASS" | "FAIL" | "REVIEW" | "PENDING";
+  discrepancies: number;
+  critical: number;
+  major: number;
+  reviewer: string;
+}
 
 export default function DashboardPage() {
   const { user, organization } = useAuth();
-  const quota = INITIAL_QUOTA;
+  const [checksUsed, setChecksUsed] = useState(0);
+  const [checksLimit, setChecksLimit] = useState(100);
+  const [projectCount, setProjectCount] = useState(0);
+  const [recentReports, setRecentReports] = useState<DashboardJobRow[]>([]);
+
+  useEffect(() => {
+    fetch("/api/v1/organizations/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((org) => {
+        if (org) {
+          setChecksUsed(org.used_monthly_checks ?? 0);
+          setChecksLimit(org.max_monthly_checks ?? 100);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/v1/projects")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        if (Array.isArray(list)) setProjectCount(list.length);
+      })
+      .catch(() => {});
+
+    fetch("/api/v1/qc/jobs")
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((data) => {
+        const mapped: DashboardJobRow[] = (data.items || []).map((j: any) => ({
+          id: j.id,
+          documentName: j.document_name,
+          projectName: j.project_name || "Inspection Project",
+          standard: j.standard,
+          date: new Date(j.created_at).toLocaleString(),
+          result: j.overall_result || "PENDING",
+          discrepancies: j.total_discrepancies ?? 0,
+          critical: j.critical_count ?? 0,
+          major: j.major_count ?? 0,
+          reviewer: "Assigned Inspector",
+        }));
+        setRecentReports(mapped);
+      })
+      .catch(() => {});
+  }, []);
+
+  const checksRemaining = Math.max(0, checksLimit - checksUsed);
+  const percentUsed = checksLimit > 0 ? Math.min(100, Math.round((checksUsed / checksLimit) * 100)) : 0;
+  const quota = {
+    checks_used: checksUsed,
+    checks_limit: checksLimit,
+    checks_remaining: checksRemaining,
+    percent_used: percentUsed,
+  };
+
+  const completedRuns = recentReports.filter((r) => r.result !== "PENDING");
+  const passedRuns = completedRuns.filter((r) => r.result === "PASS").length;
+  const failedRuns = completedRuns.filter((r) => r.result === "FAIL").length;
+  const passRateStr = completedRuns.length > 0 ? `${Math.round((passedRuns / completedRuns.length) * 100)}%` : "—";
+  const latestCritical = recentReports.find((r) => r.critical > 0 || r.result === "FAIL");
 
   const quickLaunchApps = [
     { title: "Unbox™ Schematic", href: "/app/check", icon: Box, color: "text-cyan-400", bg: "bg-cyan-500/10 border-cyan-500/30", desc: "Upload and auto-match rules" },
-    { title: "QC Reports", href: "/app/reports/run-wh402", icon: FileSpreadsheet, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/30", desc: "Split-screen evidence review" },
+    { title: "QC Reports", href: "/app/history", icon: FileSpreadsheet, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/30", desc: "Split-screen evidence review" },
     { title: "Projects", href: "/app/projects", icon: FolderKanban, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/30", desc: "Harness programs & documents" },
     { title: "Standards Suite", href: "/app/standards", icon: ShieldCheck, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30", desc: "IPC-620 & UL 508A rules" },
-  ];
-
-  const recentReports = [
-    {
-      id: "run-wh402",
-      documentName: "WH-402_Avionics_Wiring_Manual_RevC.pdf",
-      projectName: "Commercial Avionics Harness WD-777",
-      standard: "IPC/WHMA-A-620D Class 3",
-      date: "Today, 11:58 AM",
-      result: "FAIL" as const,
-      discrepancies: 6,
-      critical: 2,
-      major: 3,
-      reviewer: "Lead QC Reviewer",
-    },
-    {
-      id: "run-mcc01",
-      documentName: "MCC_VFD_Panel_Schematic_v2.pdf",
-      projectName: "Industrial MCC Panel Gen-4",
-      standard: "UL 508A 3rd Edition",
-      date: "Yesterday, 04:15 PM",
-      result: "FAIL" as const,
-      discrepancies: 4,
-      critical: 1,
-      major: 2,
-      reviewer: "Harness Engineer",
-    },
-    {
-      id: "run-tb200",
-      documentName: "TB200_Relay_Interface_Rev1.pdf",
-      projectName: "High-Voltage EV Battery Harness B-200",
-      standard: "IPC/WHMA-A-620D Class 2",
-      date: "Oct 01, 2026",
-      result: "PASS" as const,
-      discrepancies: 0,
-      critical: 0,
-      major: 0,
-      reviewer: "Compliance Auditor",
-    },
-    {
-      id: "run-harness88",
-      documentName: "B777X_Cockpit_Audio_Bus_Schematic.pdf",
-      projectName: "Commercial Avionics Harness WD-777",
-      standard: "IPC/WHMA-A-620D Class 3",
-      date: "Sep 29, 2026",
-      result: "PASS" as const,
-      discrepancies: 0,
-      critical: 0,
-      major: 0,
-      reviewer: "Lead QC Reviewer",
-    },
   ];
 
   return (
@@ -171,9 +188,9 @@ export default function DashboardPage() {
             Pass Rate
           </p>
           <div className="mt-1.5 text-2xl font-extrabold text-emerald-400 font-mono">
-            82.4%
+            {passRateStr}
           </div>
-          <p className="text-[11px] text-emerald-400/80 mt-0.5 font-semibold">↑ +4.1% vs prev</p>
+          <p className="text-[11px] text-emerald-400/80 mt-0.5 font-semibold">{completedRuns.length} completed runs</p>
         </CursorSpotlightCard>
 
         <CursorSpotlightCard className="p-4" spotlightColor="rgba(59, 130, 246, 0.15)">
@@ -181,9 +198,9 @@ export default function DashboardPage() {
             Active Projects
           </p>
           <div className="mt-1.5 text-2xl font-extrabold text-blue-400 font-mono">
-            7
+            {projectCount}
           </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Avionics & Control</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Organization workspace</p>
         </CursorSpotlightCard>
 
         <CursorSpotlightCard className="p-4" spotlightColor="rgba(168, 85, 247, 0.15)">
@@ -191,9 +208,9 @@ export default function DashboardPage() {
             Reports
           </p>
           <div className="mt-1.5 text-2xl font-extrabold text-purple-400 font-mono">
-            34
+            {recentReports.length}
           </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">All signed QC reports (PDF/XLSX)</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">Signed & queued reports</p>
         </CursorSpotlightCard>
 
         <CursorSpotlightCard className="p-4" spotlightColor="rgba(255, 51, 102, 0.2)">
@@ -202,31 +219,33 @@ export default function DashboardPage() {
             <span>Failed Checks</span>
           </p>
           <div className="mt-1.5 text-2xl font-extrabold text-rose-400 font-mono">
-            2
+            {failedRuns}
           </div>
           <p className="text-[11px] text-rose-300/80 mt-0.5">Open critical flags</p>
         </CursorSpotlightCard>
       </div>
 
-      {/* Critical Attention Banner */}
-      <div className="p-4 rounded-2xl bg-rose-950/25 border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-rose-500/5">
-        <div className="flex items-start gap-3">
-          <AlertOctagon className="w-5 h-5 text-rose-400 shrink-0 mt-0.5 animate-pulse" />
-          <div>
-            <h4 className="text-sm font-bold text-rose-200">
-              Critical Discrepancy Flagged: WH-402 (Conductor W102)
-            </h4>
-            <p className="text-xs text-rose-300/80 mt-0.5">
-              Missing wire gauge callout violates IPC/WHMA-A-620D §4.1 Class 3 acceptance criteria.
-            </p>
+      {/* Critical Attention Banner (live job only) */}
+      {latestCritical && (
+        <div className="p-4 rounded-2xl bg-rose-950/25 border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-rose-500/5">
+          <div className="flex items-start gap-3">
+            <AlertOctagon className="w-5 h-5 text-rose-400 shrink-0 mt-0.5 animate-pulse" />
+            <div>
+              <h4 className="text-sm font-bold text-rose-200">
+                Critical Discrepancy Flagged: {latestCritical.documentName}
+              </h4>
+              <p className="text-xs text-rose-300/80 mt-0.5">
+                {latestCritical.critical} critical and {latestCritical.major} major discrepancies detected against {latestCritical.standard}.
+              </p>
+            </div>
           </div>
+          <Link href={`/app/reports/${latestCritical.id}`}>
+            <Button variant="danger" size="sm">
+              Review Findings
+            </Button>
+          </Link>
         </div>
-        <Link href="/app/reports/run-wh402">
-          <Button variant="danger" size="sm">
-            Review Finding D-001
-          </Button>
-        </Link>
-      </div>
+      )}
 
       {/* Main Dashboard Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

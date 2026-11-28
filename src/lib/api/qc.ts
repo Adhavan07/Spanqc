@@ -1,39 +1,19 @@
 import { apiClient } from "./client";
 import { QCRun, QCFinding, QCReportSummary, FindingStatus, FeedbackSubmission } from "@/types";
-import { SAMPLE_QC_RUN_WH402, SAMPLE_FINDINGS_WH402 } from "../data/sample-data";
 
 export async function createQCRunApi(documentId: string, standard: string): Promise<QCRun> {
-  try {
-    return await apiClient<QCRun>("/api/v1/qc-runs", {
-      method: "POST",
-      body: JSON.stringify({ document_id: documentId, standard }),
-    });
-  } catch {
-    // Generate new QC run instance based on sample benchmark
-    return {
-      ...SAMPLE_QC_RUN_WH402,
-      id: `run-${Date.now()}`,
-      document_id: documentId,
-      standard,
-      started_at: new Date().toISOString(),
-    };
-  }
+  return await apiClient<QCRun>("/api/v1/qc-runs", {
+    method: "POST",
+    body: JSON.stringify({ document_id: documentId, standard }),
+  });
 }
 
 export async function getQCRunApi(qcRunId: string): Promise<QCRun> {
-  try {
-    return await apiClient<QCRun>(`/api/v1/qc-runs/${qcRunId}`);
-  } catch {
-    return SAMPLE_QC_RUN_WH402;
-  }
+  return await apiClient<QCRun>(`/api/v1/qc-runs/${qcRunId}`);
 }
 
 export async function listFindingsApi(qcRunId: string): Promise<QCFinding[]> {
-  try {
-    return await apiClient<QCFinding[]>(`/api/v1/qc-runs/${qcRunId}/findings`);
-  } catch {
-    return SAMPLE_FINDINGS_WH402;
-  }
+  return await apiClient<QCFinding[]>(`/api/v1/qc-runs/${qcRunId}/findings`);
 }
 
 export async function reviewFindingApi(
@@ -42,24 +22,10 @@ export async function reviewFindingApi(
   decision: "CONFIRMED" | "REJECTED" | "NEEDS_REVIEW",
   comment?: string
 ): Promise<QCFinding> {
-  try {
-    return await apiClient<QCFinding>(`/api/v1/qc-runs/${qcRunId}/findings/${findingId}/review`, {
-      method: "POST",
-      body: JSON.stringify({ decision, comment }),
-    });
-  } catch {
-    const finding = SAMPLE_FINDINGS_WH402.find((f) => f.id === findingId);
-    if (!finding) throw new Error("Finding not found");
-    const updated: QCFinding = {
-      ...finding,
-      status: decision === "CONFIRMED" ? "CONFIRMED" : decision === "REJECTED" ? "REJECTED" : "NEEDS_REVIEW",
-      human_decision: decision,
-      reviewer_name: "Pravin (Lead QC Inspector)",
-      reviewer_comment: comment || null,
-      reviewed_at: new Date().toISOString(),
-    };
-    return updated;
-  }
+  return await apiClient<QCFinding>(`/api/v1/qc-runs/${qcRunId}/findings/${findingId}/review`, {
+    method: "POST",
+    body: JSON.stringify({ decision, comment }),
+  });
 }
 
 export async function submitFindingFeedbackApi(

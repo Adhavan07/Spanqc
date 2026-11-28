@@ -41,8 +41,8 @@ import {
   Files,
 } from "lucide-react";
 import JSZip from "jszip";
-import { INITIAL_PROJECTS, SAMPLE_STANDARDS } from "@/lib/data/sample-data";
-import { calculateSHA256, createReportFromUploadedFile, formatBytes } from "@/lib/services/report-store";
+import { STANDARD_PACKS } from "@/lib/standards/catalog";
+import { calculateSHA256, formatBytes } from "@/lib/services/report-store";
 
 export default function CheckWorkflowPage() {
   const router = useRouter();
@@ -94,7 +94,7 @@ export default function CheckWorkflowPage() {
 
   const [selectedProject, setSelectedProject] = useState("");
   const [tenantProjects, setTenantProjects] = useState<{ id: string; name: string; customer?: string }[]>([]);
-  const [selectedStandard, setSelectedStandard] = useState(SAMPLE_STANDARDS[0].code);
+  const [selectedStandard, setSelectedStandard] = useState(STANDARD_PACKS[0].code);
 
   React.useEffect(() => {
     fetch("/api/v1/projects")
@@ -1215,7 +1215,7 @@ export default function CheckWorkflowPage() {
                 label="Compliance Standard"
                 value={selectedStandard}
                 onChange={(e) => setSelectedStandard(e.target.value)}
-                options={SAMPLE_STANDARDS.map((s) => ({
+                options={STANDARD_PACKS.map((s) => ({
                   value: s.code,
                   label: s.code,
                   subtext: `${s.rule_count} rules`,

@@ -34,13 +34,64 @@ MAX_PAGES = 100
 
 class PageTuple(tuple):
     """2-tuple (img_bytes, mime_type) with optional metadata attributes for zero-breakage backwards compatibility."""
-    def __new__(cls, img: bytes, mt: str, name: str = "", svg_raw: Optional[bytes] = None, text_raw: Optional[str] = None):
+    def __new__(cls, img: bytes, mt: str, name: str = "", svg_raw: Optional[bytes] = None, text_raw: Optional[str] = None, geometry: Optional[dict] = None):
         return super().__new__(cls, (img, mt))
 
-    def __init__(self, img: bytes, mt: str, name: str = "", svg_raw: Optional[bytes] = None, text_raw: Optional[str] = None):
+    def __init__(self, img: bytes, mt: str, name: str = "", svg_raw: Optional[bytes] = None, text_raw: Optional[str] = None, geometry: Optional[dict] = None):
         self.name = name
         self.svg_raw = svg_raw
         self.text_raw = text_raw
+        self.geometry = geometry
+
+
+def _extract_pdf_page_geometry(page) -> dict:
+    """Extract PDF vector line segments and positioned text lines via PyMuPDF."""
+    segs = []
+    try:
+        for d in page.get_drawings():
+            for item in d.get("items", ()):
+                op = item[0]
+                if op == "l" and len(item) >= 3:
+                    p1, p2 = item[1], item[2]
+                    if (p1.x, p1.y) != (p2.x, p2.y):
+                        segs.append(((float(p1.x), float(p1.y)), (float(p2.x), float(p2.y))))
+    except Exception:
+        pass
+
+    text_items = []
+    try:
+        tdict = page.get_text("dict")
+        for blk in tdict.get("blocks", ()):
+            if blk.get("type") != 0:
+                continue
+            for ln in blk.get("lines", ()):
+                txt = "".join(sp.get("text", "") for sp in ln.get("spans", ())).strip()
+                if not txt:
+                    continue
+                bbox = ln.get("bbox")
+                if bbox and len(bbox) == 4:
+                    cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
+                    cy = 0.5 * (float(bbox[1]) + float(bbox[3]))
+                    text_items.append((cx, cy, txt))
+    except Exception:
+        pass
+
+    return {"segments": segs, "text_items": text_items}
+
+
+def _dedup_findings(findings_list: List[dict]) -> List[dict]:
+    """Deduplicate identical findings emitted across Input and Output passes on (rule, evidence, page)."""
+    seen: set = set()
+    deduped: List[dict] = []
+    for f in findings_list:
+        rid = str(f.get("rule_id") or f.get("code") or "").strip().upper()
+        ev = re.sub(r"\s+", " ", str(f.get("evidence_text") or f.get("detected_value") or f.get("title") or "")).strip().upper()
+        pg = int(f.get("page_number") or 1)
+        k = (rid, ev, pg)
+        if k not in seen:
+            seen.add(k)
+            deduped.append(f)
+    return deduped
 
 
 def _pages(data: bytes, filename: str) -> List[PageTuple]:
@@ -53,8 +104,16 @@ def _pages(data: bytes, filename: str) -> List[PageTuple]:
             doc = pymupdf.open(stream=data, filetype="pdf")
             if doc.page_count > MAX_PAGES:
                 raise HTTPException(413, f"PDF has {doc.page_count} pages; the limit is {MAX_PAGES}.")
-            return [PageTuple(p.get_pixmap(dpi=150).tobytes("png"), "image/png", name=f"Page {idx + 1}", text_raw=p.get_text())
-                    for idx, p in enumerate(doc)]
+            return [
+                PageTuple(
+                    p.get_pixmap(dpi=150).tobytes("png"),
+                    "image/png",
+                    name=f"Page {idx + 1}",
+                    text_raw=p.get_text(),
+                    geometry=_extract_pdf_page_geometry(p),
+                )
+                for idx, p in enumerate(doc)
+            ]
         except HTTPException:
             raise
         except Exception as exc:
@@ -418,6 +477,9 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
                     seen_oem_comps.add(ck)
                     oem_components.append(comp)
 
+        # Deduplicate findings across Input & Output passes before enrichment/scoring
+        findings = _dedup_findings(findings)
+
         # Enrich all findings with full 5-part root-cause, node-ref, future-problem & remediation diagnostics
         findings = [enrich_finding_diagnostics(f, sheet_name=output_filename or (file.filename or "Sheet")) for f in findings]
 
@@ -439,6 +501,7 @@ def create_app(client_factory: Optional[Callable[[], ExtractionClient]] = None) 
                     getattr(pg, "text_raw", None)
                     or "\n".join(o.evidence for o in observations if o.page == idx + 1 and o.evidence)
                 ),
+                "geometry": getattr(pg, "geometry", None),
             }
             for idx, pg in enumerate(pages)
         ]
