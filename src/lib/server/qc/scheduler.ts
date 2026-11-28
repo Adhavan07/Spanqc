@@ -12,6 +12,7 @@ export interface SchedulerState {
   timer: NodeJS.Timeout | null;
   lastQueueCheckAt: Date | null;
   lastRecoveryAt: Date | null;
+  lastDbErrorAt: Date | null;
   isExecuting: boolean;
   totalReclaimed: number;
   totalExhausted: number;
@@ -22,6 +23,12 @@ const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const DEFAULT_RECOVERY_INTERVAL_MS = 30_000;
 const DEFAULT_STALE_THRESHOLD_MS = 120_000;
 const DEFAULT_BATCH_SIZE = 5;
+const DB_ERROR_COOLDOWN_MS = 30_000;
+
+export function isPostgresDatabaseUrlConfigured(): boolean {
+  const url = (process.env.DATABASE_URL || "").trim();
+  return url.startsWith("postgresql://") || url.startsWith("postgres://");
+}
 
 // Singleton state attached to globalThis to survive HMR in development mode
 const globalScheduler = globalThis as unknown as {
@@ -35,6 +42,7 @@ export function getSchedulerState(): SchedulerState {
       timer: null,
       lastQueueCheckAt: null,
       lastRecoveryAt: null,
+      lastDbErrorAt: null,
       isExecuting: false,
       totalReclaimed: 0,
       totalExhausted: 0,
@@ -58,6 +66,10 @@ export async function runSchedulerTick(options: {
   exhaustedCount: number;
   processedCount: number;
 }> {
+  if (!isPostgresDatabaseUrlConfigured()) {
+    return { reclaimedCount: 0, exhaustedCount: 0, processedCount: 0 };
+  }
+
   const state = getSchedulerState();
   if (state.isExecuting) {
     return { reclaimedCount: 0, exhaustedCount: 0, processedCount: 0 };
@@ -100,8 +112,15 @@ export async function runSchedulerTick(options: {
       state.totalProcessed += processedCount;
       state.lastQueueCheckAt = now;
     }
-  } catch (err) {
-    console.error("[QC_SCHEDULER_ERROR] Error during scheduler tick:", err);
+    state.lastDbErrorAt = null;
+  } catch (err: any) {
+    const now = new Date();
+    if (!state.lastDbErrorAt || now.getTime() - state.lastDbErrorAt.getTime() >= DB_ERROR_COOLDOWN_MS) {
+      state.lastDbErrorAt = now;
+      console.warn(
+        `[QC_SCHEDULER_WARN] Database unavailable during scheduler tick (${err?.name || "Error"}): ${String(err?.message || err).split("\n")[0]}`
+      );
+    }
   } finally {
     state.isExecuting = false;
   }
@@ -116,6 +135,13 @@ export function startQCScheduler(config: SchedulerConfig = {}): void {
   const state = getSchedulerState();
   if (state.isRunning) {
     return; // Already running
+  }
+
+  if (!isPostgresDatabaseUrlConfigured()) {
+    console.warn(
+      "[QC_SCHEDULER_PAUSED] DATABASE_URL must start with postgresql:// or postgres://. Background worker not started."
+    );
+    return;
   }
 
   const pollIntervalMs = config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
