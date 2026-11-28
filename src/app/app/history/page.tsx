@@ -138,6 +138,7 @@ export default function HistoryPage() {
           >
             <option value="ALL">All Outcomes</option>
             <option value="PASS">Pass Only</option>
+            <option value="REVIEW">Needs Review</option>
             <option value="FAIL">Fail (Discrepancies Found)</option>
           </select>
         </div>
@@ -157,9 +158,18 @@ export default function HistoryPage() {
             </tr>
           </TableHead>
           <TableBody>
+            {filtered.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-slate-400 font-mono text-xs">
+                  No inspection reports match the current filter. Upload a schematic in Unbox &amp; QC to generate a report.
+                </TableCell>
+              </TableRow>
+            )}
             {filtered.map((item) => {
-              const findingsCount = item.findings?.length || 0;
-              const criticalCount = item.findings?.filter((f) => f.severity === "CRITICAL").length || 0;
+              const findingsCount = item.findings ? item.findings.length : (item.total_discrepancies ?? 0);
+              const criticalCount = item.findings
+                ? item.findings.filter((f) => f.severity === "CRITICAL").length
+                : (item.critical_count ?? 0);
 
               return (
                 <TableRow key={item.id}>
